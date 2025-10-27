@@ -1,0 +1,15 @@
+[package]
+name = "model"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+model-derive = { path = "../model-derive" }
+record-id = { path = "../record-id" }
+
+serde.workspace = true
+
+[lints]
+workspace = true
