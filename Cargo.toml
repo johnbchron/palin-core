@@ -7,16 +7,11 @@ resolver = "3"
 missing_docs = "deny"
 
 [workspace.dependencies]
-# strictly codegen
-# async-trait = { version = "0.1" }
 serde = { version = "1", features = ["derive"] }
-# thiserror = { version = "2" }
 
-# # errors
-# # miette = { version = "7", default-features = false, features = ["derive"] }
-# miette = { git = "https://github.com/zkat/miette", default-features = false, features = [
-#   "derive",
-# ] }
+# errors
+miette = { git = "https://github.com/zkat/miette", default-features = false, features = ["derive"] }
+thiserror = { version = "2" }
 
 # # mainline application
 # tokio = { version = "1" }
@@ -29,7 +24,8 @@ serde = { version = "1", features = ["derive"] }
 # nutype = { version = "0.6" }
 # pin-project = { version = "1" }
 # rmp-serde = "1.3"
+serde_json = { version = "1" }
 ulid = { version = "1", features = ["serde"] }
 
 # tracing
-# tracing = { version = "0.1" }
+tracing = { version = "0.1" }
