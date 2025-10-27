@@ -3,15 +3,11 @@
 //! The [`Model`] trait must be implemented for a type to be used as a domain
 //! data model. Use the `#[derive(Model)]` macro to automatically implement it.
 
-mod index_value;
-
-use std::fmt::{Debug, Display};
+use std::fmt::{self, Debug, Display};
 
 pub use model_derive::Model;
 use record_id::RecordId;
 use serde::{Serialize, de::DeserializeOwned};
-
-pub use self::index_value::*;
 
 /// Represents a model in the database.
 pub trait Model:
@@ -62,6 +58,27 @@ impl<M> IndexRegistry<M> {
   ) -> impl Iterator<Item = &IndexDefinition<M>> {
     self.definitions.iter().filter(|def| !def.unique)
   }
+}
+
+/// An index value.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct IndexValue(String);
+
+impl fmt::Display for IndexValue {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.write_str(&self.0)
+  }
+}
+
+impl IndexValue {
+  /// Creates a new [`IndexValue`].
+  pub fn new(input: impl AsRef<str>) -> Self {
+    IndexValue(input.as_ref().to_owned())
+  }
+}
+
+impl From<String> for IndexValue {
+  fn from(value: String) -> Self { IndexValue::new(value) }
 }
 
 /// Definition of a single index (can be simple or composite).
