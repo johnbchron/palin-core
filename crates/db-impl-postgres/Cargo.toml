@@ -9,6 +9,7 @@ publish = false
 db-core = { path = "../db-core" }
 model = { path = "../model" }
 
+async-trait.workspace = true
 miette.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8.6", features = ["postgres"] }

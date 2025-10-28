@@ -7,7 +7,7 @@ use std::{
 };
 
 use db_core::{StoreError, StoreResult};
-use model::{IndexValue, Model};
+use model::{IndexValue, Model, RecordId};
 
 /// In-memory mock storage for testing models implementing the `Model` trait.
 #[derive(Clone)]
@@ -18,9 +18,9 @@ pub struct MockStore<M: Model> {
 
 struct MockStoreInner<M: Model> {
   /// Main data storage: id -> model
-  data:        HashMap<String, M>,
+  data:        HashMap<RecordId<M>, M>,
   /// Index storage: (index_name, index_key) -> Vec<record_id>
-  indices:     HashMap<(String, String), Vec<String>>,
+  indices:     HashMap<(String, String), Vec<RecordId<M>>>,
   /// Tracks whether schema has been initialized
   initialized: bool,
 }
@@ -53,13 +53,11 @@ impl<M: Model> MockStore<M> {
   pub async fn insert(&self, model: &M) -> StoreResult<()> {
     let mut inner = self.inner.write().unwrap();
 
-    let id = model.id().to_string();
-
     // Check if record already exists
-    if inner.data.contains_key(&id) {
+    if inner.data.contains_key(&model.id()) {
       return Err(StoreError::Database(miette::miette!(
         "Record with id {} already exists",
-        id
+        model.id()
       )));
     }
 
@@ -67,7 +65,7 @@ impl<M: Model> MockStore<M> {
     self.check_unique_violations(&inner, model, None)?;
 
     // Insert the model
-    inner.data.insert(id.clone(), model.clone());
+    inner.data.insert(model.id(), model.clone());
 
     // Insert index entries
     self.insert_indices_inner(&mut inner, model)?;
@@ -79,21 +77,19 @@ impl<M: Model> MockStore<M> {
   pub async fn update(&self, model: &M) -> StoreResult<()> {
     let mut inner = self.inner.write().unwrap();
 
-    let id = model.id().to_string();
-
     // Check if record exists
-    if !inner.data.contains_key(&id) {
-      return Err(StoreError::NotFound(id));
+    if !inner.data.contains_key(&model.id()) {
+      return Err(StoreError::NotFound(model.id().to_string()));
     }
 
     // Check unique index violations (excluding current record)
-    self.check_unique_violations(&inner, model, Some(&id))?;
+    self.check_unique_violations(&inner, model, Some(model.id()))?;
 
     // Delete old index entries
-    self.delete_indices_inner(&mut inner, &id);
+    self.delete_indices_inner(&mut inner, model.id());
 
     // Update the model
-    inner.data.insert(id.clone(), model.clone());
+    inner.data.insert(model.id(), model.clone());
 
     // Insert new index entries
     self.insert_indices_inner(&mut inner, model)?;
@@ -102,16 +98,16 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Delete a model from the mock store by ID.
-  pub async fn delete(&self, id: &str) -> StoreResult<()> {
+  pub async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record exists
-    if !inner.data.contains_key(id) {
+    if !inner.data.contains_key(&id) {
       return Err(StoreError::NotFound(id.to_string()));
     }
 
     // Remove from main storage
-    inner.data.remove(id);
+    inner.data.remove(&id);
 
     // Remove from indices
     self.delete_indices_inner(&mut inner, id);
@@ -120,13 +116,13 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Get a model by ID.
-  pub async fn get(&self, id: &str) -> StoreResult<Option<M>> {
+  pub async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
     let inner = self.inner.read().unwrap();
-    Ok(inner.data.get(id).cloned())
+    Ok(inner.data.get(&id).cloned())
   }
 
   /// Get a model by ID, returning an error if not found.
-  pub async fn get_or_error(&self, id: &str) -> StoreResult<M> {
+  pub async fn get_or_error(&self, id: RecordId<M>) -> StoreResult<M> {
     self
       .get(id)
       .await?
@@ -137,7 +133,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: RecordId<M>,
   ) -> StoreResult<Option<M>> {
     let inner = self.inner.read().unwrap();
 
@@ -165,7 +161,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_unique_index_or_error(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: RecordId<M>,
   ) -> StoreResult<M> {
     self
       .find_by_unique_index(selector, key)
@@ -177,7 +173,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: RecordId<M>,
   ) -> StoreResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
@@ -223,9 +219,9 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Check if a record exists by ID.
-  pub async fn exists(&self, id: &str) -> StoreResult<bool> {
+  pub async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
     let inner = self.inner.read().unwrap();
-    Ok(inner.data.contains_key(id))
+    Ok(inner.data.contains_key(&id))
   }
 
   /// Clear all data (useful for test cleanup).
@@ -250,7 +246,7 @@ impl<M: Model> MockStore<M> {
     &self,
     inner: &MockStoreInner<M>,
     model: &M,
-    exclude_id: Option<&str>,
+    exclude_id: Option<RecordId<M>>,
   ) -> StoreResult<()> {
     let indices = M::indices();
 
@@ -266,7 +262,7 @@ impl<M: Model> MockStore<M> {
       if let Some(existing_ids) = inner.indices.get(&index_key) {
         // Check if any existing ID is different from the one we're updating
         for existing_id in existing_ids {
-          if Some(existing_id.as_str()) != exclude_id {
+          if Some(existing_id) != exclude_id.as_ref() {
             return Err(StoreError::UniqueViolation {
               index: def.name.to_string(),
               value: index_key_str,
@@ -284,7 +280,6 @@ impl<M: Model> MockStore<M> {
     inner: &mut MockStoreInner<M>,
     model: &M,
   ) -> StoreResult<()> {
-    let id = model.id().to_string();
     let indices = M::indices();
 
     for def in indices.definitions {
@@ -292,16 +287,20 @@ impl<M: Model> MockStore<M> {
       let index_key_str = Self::format_index_key(&values);
       let index_key = (def.name.to_string(), index_key_str);
 
-      inner.indices.entry(index_key).or_default().push(id.clone());
+      inner.indices.entry(index_key).or_default().push(model.id());
     }
 
     Ok(())
   }
 
-  fn delete_indices_inner(&self, inner: &mut MockStoreInner<M>, id: &str) {
+  fn delete_indices_inner(
+    &self,
+    inner: &mut MockStoreInner<M>,
+    id: RecordId<M>,
+  ) {
     // Remove all index entries for this record
     inner.indices.retain(|_, record_ids| {
-      record_ids.retain(|rid| rid != id);
+      record_ids.retain(|rid| *rid != id);
       !record_ids.is_empty()
     });
   }

@@ -3,7 +3,7 @@
 
 mod error;
 
-use model::Model;
+use model::{IndexValue, Model, RecordId};
 
 pub use self::error::StoreError;
 
@@ -11,10 +11,6 @@ pub use self::error::StoreError;
 pub type StoreResult<T> = Result<T, StoreError>;
 
 /// A generic storage interface for models implementing the `Model` trait.
-///
-/// This trait defines the core operations for persisting and querying models,
-/// allowing different storage backends (Postgres, in-memory, etc.) to provide
-/// consistent APIs.
 #[async_trait::async_trait]
 pub trait Store<M: Model>: Send + Sync {
   /// Initialize the storage schema for this model.
@@ -30,7 +26,7 @@ pub trait Store<M: Model>: Send + Sync {
   ///
   /// Returns `true` if inserted, `false` if updated.
   async fn upsert(&self, model: &M) -> StoreResult<bool> {
-    match self.exists(&model.id().to_string()).await? {
+    match self.exists(model.id()).await? {
       true => {
         self.update(model).await?;
         Ok(false)
@@ -43,20 +39,20 @@ pub trait Store<M: Model>: Send + Sync {
   }
 
   /// Delete a model from storage by ID.
-  async fn delete(&self, id: &str) -> StoreResult<()>;
+  async fn delete(&self, id: RecordId<M>) -> StoreResult<()>;
 
   /// Delete a model from storage by ID, returning the deleted model.
-  async fn delete_and_return(&self, id: &str) -> StoreResult<M> {
+  async fn delete_and_return(&self, id: RecordId<M>) -> StoreResult<M> {
     let model = self.get_or_error(id).await?;
     self.delete(id).await?;
     Ok(model)
   }
 
   /// Retrieve a model by its ID.
-  async fn get(&self, id: &str) -> StoreResult<Option<M>>;
+  async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>>;
 
   /// Retrieve a model by its ID, returning an error if not found.
-  async fn get_or_error(&self, id: &str) -> StoreResult<M> {
+  async fn get_or_error(&self, id: RecordId<M>) -> StoreResult<M> {
     self
       .get(id)
       .await?
@@ -64,10 +60,10 @@ pub trait Store<M: Model>: Send + Sync {
   }
 
   /// Retrieve multiple models by their IDs in a single operation.
-  async fn get_many(&self, ids: &[&str]) -> StoreResult<Vec<Option<M>>> {
+  async fn get_many(&self, ids: &[RecordId<M>]) -> StoreResult<Vec<Option<M>>> {
     let mut results = Vec::with_capacity(ids.len());
     for id in ids {
-      results.push(self.get(id).await?);
+      results.push(self.get(*id).await?);
     }
     Ok(results)
   }
@@ -76,14 +72,14 @@ pub trait Store<M: Model>: Send + Sync {
   async fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<Option<M>>;
 
   /// Find a model by a unique index, returning an error if not found.
   async fn find_by_unique_index_or_error(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<M> {
     self
       .find_by_unique_index(selector, key)
@@ -97,25 +93,25 @@ pub trait Store<M: Model>: Send + Sync {
   async fn find_by_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<Vec<M>>;
 
   /// Find the first model matching a non-unique index.
   async fn find_one_by_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<Option<M>> {
     let mut results = self.find_by_index(selector, key).await?;
     Ok(results.drain(..).next())
   }
 
   /// List all models with pagination.
-  async fn list(&self, limit: u64, offset: u64) -> StoreResult<Vec<M>>;
+  async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>>;
 
   /// List all models without pagination.
   async fn list_all(&self) -> StoreResult<Vec<M>> {
-    self.list(u64::MAX, 0).await
+    self.list(u32::MAX, 0).await
   }
 
   /// Count the total number of records in storage.
@@ -125,56 +121,20 @@ pub trait Store<M: Model>: Send + Sync {
   async fn count_by_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<i64> {
     Ok(self.find_by_index(selector, key).await?.len() as i64)
   }
 
   /// Check if a record exists by ID.
-  async fn exists(&self, id: &str) -> StoreResult<bool>;
+  async fn exists(&self, id: RecordId<M>) -> StoreResult<bool>;
 
   /// Check if any records match a unique index key.
   async fn exists_by_unique_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<bool> {
     Ok(self.find_by_unique_index(selector, key).await?.is_some())
   }
-
-  // /// Delete all records in storage.
-  // async fn delete_all(&self) -> StoreResult<i64>;
-
-  // /// Execute a batch insert of multiple models in a single transaction.
-  // async fn insert_many(&self, models: &[M]) -> StoreResult<()> {
-  //   for model in models {
-  //     self.insert(model).await?;
-  //   }
-  //   Ok(())
-  // }
-
-  // /// Execute a batch update of multiple models in a single transaction.
-  // ///
-  // /// This is more efficient than calling `update` multiple times.
-  // /// If any update fails, the entire batch is rolled back.
-  // async fn update_many(&self, models: &[M]) -> StoreResult<()> {
-  //   for model in models {
-  //     self.update(model).await?;
-  //   }
-  //   Ok(())
-  // }
-
-  // /// Delete multiple records by ID in a single transaction.
-  // ///
-  // /// Returns the number of records actually deleted (which may be less than
-  // /// the number of IDs provided if some don't exist).
-  // async fn delete_many(&self, ids: &[&str]) -> StoreResult<i64> {
-  //   let mut deleted = 0;
-  //   for id in ids {
-  //     if self.delete(id).await.is_ok() {
-  //       deleted += 1;
-  //     }
-  //   }
-  //   Ok(deleted)
-  // }
 }

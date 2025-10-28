@@ -153,6 +153,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "db"
+version = "0.1.0"
+dependencies = [
+ "db-core",
+ "db-impl-mock",
+ "db-impl-postgres",
+ "model",
+]
+
+[[package]]
 name = "db-core"
 version = "0.1.0"
 dependencies = [
@@ -168,6 +178,7 @@ dependencies = [
 name = "db-impl-mock"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "db-core",
  "miette",
  "model",
@@ -177,6 +188,7 @@ dependencies = [
 name = "db-impl-postgres"
 version = "0.1.0"
 dependencies = [
+ "async-trait",
  "db-core",
  "miette",
  "model",

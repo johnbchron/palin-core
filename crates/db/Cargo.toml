@@ -1,16 +1,13 @@
 [package]
-name = "db-impl-mock"
-version = "0.1.0"
-
 edition = "2024"
-publish = false
+name = "db"
+version = "0.1.0"
 
 [dependencies]
 db-core = { path = "../db-core" }
+db-impl-mock = { path = "../db-impl-mock" }
+db-impl-postgres = { path = "../db-impl-postgres" }
 model = { path = "../model" }
-
-async-trait.workspace = true
-miette.workspace = true
 
 [lints]
 workspace = true

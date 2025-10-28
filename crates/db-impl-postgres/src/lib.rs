@@ -2,9 +2,9 @@
 
 use std::marker::PhantomData;
 
-use db_core::{StoreError, StoreResult};
+use db_core::{Store, StoreError, StoreResult};
 use miette::{Context, IntoDiagnostic, Report};
-use model::{IndexValue, Model};
+use model::{IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
 use tracing::{debug, error, info, instrument, trace, warn};
 
@@ -218,7 +218,7 @@ impl<M: Model> PostgresStore<M> {
       .into_diagnostic()
       .map_err(StoreError::Database)?;
 
-    let id = model.id().to_string();
+    let id = model.id();
     let data = serde_json::to_value(model)
       .into_diagnostic()
       .map_err(StoreError::Serialization)?;
@@ -232,7 +232,7 @@ impl<M: Model> PostgresStore<M> {
 
     let result = sqlx::query(&query)
       .bind(&data)
-      .bind(&id)
+      .bind(id.to_string())
       .execute(&mut *tx)
       .await
       .into_diagnostic()
@@ -240,13 +240,13 @@ impl<M: Model> PostgresStore<M> {
 
     if result.rows_affected() == 0 {
       warn!("Update failed: record not found");
-      return Err(StoreError::NotFound(id));
+      return Err(StoreError::NotFound(id.to_string()));
     }
 
     trace!(rows_affected = result.rows_affected(), "Updated main table");
 
     // Delete old index entries
-    self.delete_indices(&mut tx, &id).await?;
+    self.delete_indices(&mut tx, id).await?;
 
     // Insert new index entries
     self.insert_indices(&mut tx, model).await?;
@@ -261,14 +261,14 @@ impl<M: Model> PostgresStore<M> {
 
   /// Delete a model from the database by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn delete(&self, id: &str) -> StoreResult<()> {
+  pub async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
     debug!("Deleting model");
 
     let table_name = M::TABLE_NAME;
     let query = format!("DELETE FROM {} WHERE id = $1", table_name);
 
     let result = sqlx::query(&query)
-      .bind(id)
+      .bind(id.to_string())
       .execute(&self.pool)
       .await
       .into_diagnostic()
@@ -289,14 +289,14 @@ impl<M: Model> PostgresStore<M> {
 
   /// Get a model by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get(&self, id: &str) -> StoreResult<Option<M>> {
+  pub async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
     debug!("Getting model by ID");
 
     let table_name = M::TABLE_NAME;
     let query = format!("SELECT data FROM {} WHERE id = $1", table_name);
 
     let row: Option<PgRow> = sqlx::query(&query)
-      .bind(id)
+      .bind(id.to_string())
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
@@ -324,7 +324,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Get a model by ID, returning an error if not found.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get_or_error(&self, id: &str) -> StoreResult<M> {
+  pub async fn get_or_error(&self, id: RecordId<M>) -> StoreResult<M> {
     self
       .get(id)
       .await?
@@ -336,7 +336,7 @@ impl<M: Model> PostgresStore<M> {
   pub async fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<Option<M>> {
     debug!("Finding by unique index");
 
@@ -360,7 +360,7 @@ impl<M: Model> PostgresStore<M> {
     );
 
     let row: Option<PgRow> = sqlx::query(&query)
-      .bind(key)
+      .bind(key.to_string())
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
@@ -390,7 +390,7 @@ impl<M: Model> PostgresStore<M> {
   pub async fn find_by_unique_index_or_error(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<M> {
     self
       .find_by_unique_index(selector, key)
@@ -403,7 +403,7 @@ impl<M: Model> PostgresStore<M> {
   pub async fn find_by_index(
     &self,
     selector: M::IndexSelector,
-    key: &str,
+    key: &IndexValue,
   ) -> StoreResult<Vec<M>> {
     debug!("Finding by index");
 
@@ -424,7 +424,7 @@ impl<M: Model> PostgresStore<M> {
     );
 
     let rows: Vec<PgRow> = sqlx::query(&query)
-      .bind(key)
+      .bind(key.to_string())
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
@@ -452,7 +452,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// List all models, ordered by updated_at descending.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, limit = limit, offset = offset))]
-  pub async fn list(&self, limit: i64, offset: i64) -> StoreResult<Vec<M>> {
+  pub async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
     debug!("Listing models");
 
     let table_name = M::TABLE_NAME;
@@ -462,8 +462,8 @@ impl<M: Model> PostgresStore<M> {
     );
 
     let rows: Vec<PgRow> = sqlx::query(&query)
-      .bind(limit)
-      .bind(offset)
+      .bind(limit as i64)
+      .bind(offset as i64)
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
@@ -514,14 +514,14 @@ impl<M: Model> PostgresStore<M> {
 
   /// Check if a record exists by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn exists(&self, id: &str) -> StoreResult<bool> {
+  pub async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
     debug!("Checking if model exists");
 
     let table_name = M::TABLE_NAME;
     let query = format!("SELECT 1 FROM {} WHERE id = $1", table_name);
 
     let exists = sqlx::query(&query)
-      .bind(id)
+      .bind(id.to_string())
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
@@ -591,7 +591,7 @@ impl<M: Model> PostgresStore<M> {
   async fn delete_indices(
     &self,
     tx: &mut sqlx::Transaction<'_, Postgres>,
-    id: &str,
+    id: RecordId<M>,
   ) -> StoreResult<()> {
     trace!("Deleting index entries");
 
@@ -603,7 +603,7 @@ impl<M: Model> PostgresStore<M> {
       let query = format!("DELETE FROM {} WHERE record_id = $1", index_table);
 
       sqlx::query(&query)
-        .bind(id)
+        .bind(id.to_string())
         .execute(&mut **tx)
         .await
         .into_diagnostic()
@@ -634,5 +634,60 @@ impl<M: Model> PostgresStore<M> {
       }
     }
     false
+  }
+}
+
+#[async_trait::async_trait]
+impl<M: Model> Store<M> for PostgresStore<M> {
+  async fn initialize_schema(&self) -> StoreResult<()> {
+    self.initialize_schema().await
+  }
+
+  async fn insert(&self, model: &M) -> StoreResult<()> {
+    self.insert(model).await
+  }
+
+  async fn update(&self, model: &M) -> StoreResult<()> {
+    self.update(model).await
+  }
+
+  async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+    self.delete(id).await
+  }
+
+  async fn delete_and_return(&self, id: RecordId<M>) -> StoreResult<M> {
+    let model = self.get_or_error(id).await?;
+    self.delete(id).await?;
+    Ok(model)
+  }
+
+  async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+    self.get(id).await
+  }
+
+  async fn find_by_unique_index(
+    &self,
+    selector: M::IndexSelector,
+    key: &IndexValue,
+  ) -> StoreResult<Option<M>> {
+    self.find_by_unique_index(selector, key).await
+  }
+
+  async fn find_by_index(
+    &self,
+    selector: M::IndexSelector,
+    key: &IndexValue,
+  ) -> StoreResult<Vec<M>> {
+    self.find_by_index(selector, key).await
+  }
+
+  async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+    self.list(limit, offset).await
+  }
+
+  async fn count(&self) -> StoreResult<i64> { self.count().await }
+
+  async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+    self.exists(id).await
   }
 }
