@@ -119,6 +119,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
 
   // Generate IndexSelector enum
   let mut selector_variants = Vec::new();
+  let mut selector_names = Vec::new();
   let mut index_definitions = Vec::new();
 
   // Add unique field indices
@@ -128,6 +129,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let field_name_snake = field.to_string();
 
     selector_variants.push(quote! { #variant_ident });
+    selector_names.push(field_name_snake.clone());
 
     index_definitions.push(quote! {
         ::model::IndexDefinition::new(
@@ -145,6 +147,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let field_name_snake = field.to_string();
 
     selector_variants.push(quote! { #variant_ident });
+    selector_names.push(field_name_snake.clone());
 
     index_definitions.push(quote! {
         model::IndexDefinition::new(
@@ -163,6 +166,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let extract_fn = &composite.extract;
 
     selector_variants.push(quote! { #variant_ident });
+    selector_names.push(name.clone());
 
     index_definitions.push(quote! {
         model::IndexDefinition::new(
@@ -181,6 +185,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     let extract_fn = &composite.extract;
 
     selector_variants.push(quote! { #variant_ident });
+    selector_names.push(name.clone());
 
     index_definitions.push(quote! {
         model::IndexDefinition::new(
@@ -198,6 +203,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     (
       quote! {
           #[derive(Debug, Clone, Copy)]
+          #[allow(missing_docs)]
           pub enum #index_selector_name {}
       },
       quote! {
@@ -212,6 +218,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     (
       quote! {
           #[derive(Debug, Clone, Copy)]
+          #[allow(missing_docs)]
           pub enum #index_selector_name {
               #(#selector_variants),*
           }
@@ -222,7 +229,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
                   match self {
                       #(
                           Self::#selector_variants => {
-                              write!(f, "{}", stringify!(#selector_variants))
+                              write!(f, #selector_names)
                           }
                       ),*
                   }
