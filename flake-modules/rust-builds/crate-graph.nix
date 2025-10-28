@@ -9,7 +9,7 @@
       pname = "crate-graph";
       version = "0.1";
       buildPhaseCargoCommand = ''
-        cargo depgraph --workspace-only > crate-graph.dot
+        cargo depgraph --workspace-only --all-deps > crate-graph.dot
       '';
       installPhaseCommand = ''
         mkdir $out
