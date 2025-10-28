@@ -1,17 +1,17 @@
 [package]
-name = "db"
+name = "db-impl-postgres"
 version = "0.1.0"
 
 edition = "2024"
 publish = false
 
 [dependencies]
+db-core = { path = "../db-core" }
 model = { path = "../model" }
 
 miette.workspace = true
 serde_json.workspace = true
 sqlx = { version = "0.8.6", features = ["postgres"] }
-thiserror.workspace = true
 tracing.workspace = true
 
 [lints]

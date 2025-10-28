@@ -5,9 +5,10 @@ mod error;
 
 use model::Model;
 
-use self::error::StoreError;
+pub use self::error::StoreError;
 
-type StoreResult<T> = Result<T, StoreError>;
+/// The specialized [`Store`] result type.
+pub type StoreResult<T> = Result<T, StoreError>;
 
 /// A generic storage interface for models implementing the `Model` trait.
 ///

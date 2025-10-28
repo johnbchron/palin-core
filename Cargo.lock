@@ -153,18 +153,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "db"
-version = "0.1.0"
-dependencies = [
- "miette",
- "model",
- "serde_json",
- "sqlx",
- "thiserror",
- "tracing",
-]
-
-[[package]]
 name = "db-core"
 version = "0.1.0"
 dependencies = [
@@ -173,6 +161,18 @@ dependencies = [
  "model",
  "serde_json",
  "thiserror",
+ "tracing",
+]
+
+[[package]]
+name = "db-impl-postgres"
+version = "0.1.0"
+dependencies = [
+ "db-core",
+ "miette",
+ "model",
+ "serde_json",
+ "sqlx",
  "tracing",
 ]
 
