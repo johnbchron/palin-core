@@ -6,7 +6,7 @@ use std::{
   sync::{Arc, RwLock},
 };
 
-use db_core::{StoreError, StoreResult};
+use db_core::{Store, StoreError, StoreResult};
 use model::{IndexValue, Model, RecordId};
 
 /// In-memory mock storage for testing models implementing the `Model` trait.
@@ -133,7 +133,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
-    key: RecordId<M>,
+    key: &IndexValue,
   ) -> StoreResult<Option<M>> {
     let inner = self.inner.read().unwrap();
 
@@ -161,7 +161,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_unique_index_or_error(
     &self,
     selector: M::IndexSelector,
-    key: RecordId<M>,
+    key: &IndexValue,
   ) -> StoreResult<M> {
     self
       .find_by_unique_index(selector, key)
@@ -173,7 +173,7 @@ impl<M: Model> MockStore<M> {
   pub async fn find_by_index(
     &self,
     selector: M::IndexSelector,
-    key: RecordId<M>,
+    key: &IndexValue,
   ) -> StoreResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
@@ -198,7 +198,7 @@ impl<M: Model> MockStore<M> {
   }
 
   /// List all models (no specific ordering in mock).
-  pub async fn list(&self, limit: i64, offset: i64) -> StoreResult<Vec<M>> {
+  pub async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
     let results: Vec<M> = inner
@@ -311,5 +311,60 @@ impl<M: Model> MockStore<M> {
       .map(|v| v.to_string())
       .collect::<Vec<_>>()
       .join("\0")
+  }
+}
+
+#[async_trait::async_trait]
+impl<M: Model> Store<M> for MockStore<M> {
+  async fn initialize_schema(&self) -> StoreResult<()> {
+    self.initialize_schema().await
+  }
+
+  async fn insert(&self, model: &M) -> StoreResult<()> {
+    self.insert(model).await
+  }
+
+  async fn update(&self, model: &M) -> StoreResult<()> {
+    self.update(model).await
+  }
+
+  async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+    self.delete(id).await
+  }
+
+  async fn delete_and_return(&self, id: RecordId<M>) -> StoreResult<M> {
+    let model = self.get_or_error(id).await?;
+    self.delete(id).await?;
+    Ok(model)
+  }
+
+  async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+    self.get(id).await
+  }
+
+  async fn find_by_unique_index(
+    &self,
+    selector: M::IndexSelector,
+    key: &IndexValue,
+  ) -> StoreResult<Option<M>> {
+    self.find_by_unique_index(selector, key).await
+  }
+
+  async fn find_by_index(
+    &self,
+    selector: M::IndexSelector,
+    key: &IndexValue,
+  ) -> StoreResult<Vec<M>> {
+    self.find_by_index(selector, key).await
+  }
+
+  async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+    self.list(limit, offset).await
+  }
+
+  async fn count(&self) -> StoreResult<i64> { self.count().await }
+
+  async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+    self.exists(id).await
   }
 }
