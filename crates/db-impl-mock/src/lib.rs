@@ -6,17 +6,17 @@ use std::{
   sync::{Arc, RwLock},
 };
 
-use db_core::{Store, StoreError, StoreResult};
+use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
 use model::{IndexValue, Model, RecordId};
 
-/// In-memory mock storage for testing models implementing the `Model` trait.
+/// In-memory mock database for testing models implementing the [`Model`] trait.
 #[derive(Clone)]
-pub struct MockStore<M: Model> {
-  inner:    Arc<RwLock<MockStoreInner<M>>>,
+pub struct MockDatabase<M: Model> {
+  inner:    Arc<RwLock<MockDatabaseInner<M>>>,
   _phantom: PhantomData<M>,
 }
 
-struct MockStoreInner<M: Model> {
+struct MockDatabaseInner<M: Model> {
   /// Main data storage: id -> model
   data:        HashMap<RecordId<M>, M>,
   /// Index storage: (index_name, index_key) -> Vec<record_id>
@@ -25,15 +25,15 @@ struct MockStoreInner<M: Model> {
   initialized: bool,
 }
 
-impl<M: Model> Default for MockStore<M> {
+impl<M: Model> Default for MockDatabase<M> {
   fn default() -> Self { Self::new() }
 }
 
-impl<M: Model> MockStore<M> {
-  /// Create a new MockStore.
+impl<M: Model> MockDatabase<M> {
+  /// Create a new MockDatabase.
   pub fn new() -> Self {
     Self {
-      inner:    Arc::new(RwLock::new(MockStoreInner {
+      inner:    Arc::new(RwLock::new(MockDatabaseInner {
         data:        HashMap::new(),
         indices:     HashMap::new(),
         initialized: false,
@@ -43,19 +43,19 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Initialize the mock schema (marks as initialized).
-  pub async fn initialize_schema(&self) -> StoreResult<()> {
+  pub async fn initialize_schema(&self) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
     inner.initialized = true;
     Ok(())
   }
 
-  /// Insert a new model into the mock store.
-  pub async fn insert(&self, model: &M) -> StoreResult<()> {
+  /// Insert a new model into the mock database.
+  pub async fn insert(&self, model: &M) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record already exists
     if inner.data.contains_key(&model.id()) {
-      return Err(StoreError::Database(miette::miette!(
+      return Err(DatabaseError::Database(miette::miette!(
         "Record with id {} already exists",
         model.id()
       )));
@@ -73,13 +73,13 @@ impl<M: Model> MockStore<M> {
     Ok(())
   }
 
-  /// Update an existing model in the mock store.
-  pub async fn update(&self, model: &M) -> StoreResult<()> {
+  /// Update an existing model in the mock database.
+  pub async fn update(&self, model: &M) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record exists
     if !inner.data.contains_key(&model.id()) {
-      return Err(StoreError::NotFound(model.id().to_string()));
+      return Err(DatabaseError::NotFound(model.id().to_string()));
     }
 
     // Check unique index violations (excluding current record)
@@ -97,13 +97,13 @@ impl<M: Model> MockStore<M> {
     Ok(())
   }
 
-  /// Delete a model from the mock store by ID.
-  pub async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+  /// Delete a model from the mock database by ID.
+  pub async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record exists
     if !inner.data.contains_key(&id) {
-      return Err(StoreError::NotFound(id.to_string()));
+      return Err(DatabaseError::NotFound(id.to_string()));
     }
 
     // Remove from main storage
@@ -116,17 +116,17 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Get a model by ID.
-  pub async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+  pub async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     let inner = self.inner.read().unwrap();
     Ok(inner.data.get(&id).cloned())
   }
 
   /// Get a model by ID, returning an error if not found.
-  pub async fn get_or_error(&self, id: RecordId<M>) -> StoreResult<M> {
+  pub async fn get_or_error(&self, id: RecordId<M>) -> DatabaseResult<M> {
     self
       .get(id)
       .await?
-      .ok_or_else(|| StoreError::NotFound(id.to_string()))
+      .ok_or_else(|| DatabaseError::NotFound(id.to_string()))
   }
 
   /// Find a model by a unique index.
@@ -134,16 +134,16 @@ impl<M: Model> MockStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Option<M>> {
+  ) -> DatabaseResult<Option<M>> {
     let inner = self.inner.read().unwrap();
 
     let indices = M::indices();
     let index_def = indices
       .get(selector)
-      .ok_or_else(|| StoreError::IndexNotFound(selector.to_string()))?;
+      .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
     if !index_def.unique {
-      return Err(StoreError::IndexNotUnique(selector.to_string()));
+      return Err(DatabaseError::IndexNotUnique(selector.to_string()));
     }
 
     let index_key = (index_def.name.to_string(), key.to_string());
@@ -162,11 +162,11 @@ impl<M: Model> MockStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<M> {
+  ) -> DatabaseResult<M> {
     self
       .find_by_unique_index(selector, key)
       .await?
-      .ok_or_else(|| StoreError::NotFound(format!("{}={}", selector, key)))
+      .ok_or_else(|| DatabaseError::NotFound(format!("{}={}", selector, key)))
   }
 
   /// Find all models matching a non-unique index.
@@ -174,13 +174,13 @@ impl<M: Model> MockStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Vec<M>> {
+  ) -> DatabaseResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
     let indices = M::indices();
     let index_def = indices
       .get(selector)
-      .ok_or_else(|| StoreError::IndexNotFound(selector.to_string()))?;
+      .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
     let index_key = (index_def.name.to_string(), key.to_string());
 
@@ -198,7 +198,7 @@ impl<M: Model> MockStore<M> {
   }
 
   /// List all models (no specific ordering in mock).
-  pub async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+  pub async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
     let results: Vec<M> = inner
@@ -213,13 +213,13 @@ impl<M: Model> MockStore<M> {
   }
 
   /// Count total number of records.
-  pub async fn count(&self) -> StoreResult<i64> {
+  pub async fn count(&self) -> DatabaseResult<i64> {
     let inner = self.inner.read().unwrap();
     Ok(inner.data.len() as i64)
   }
 
   /// Check if a record exists by ID.
-  pub async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+  pub async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     let inner = self.inner.read().unwrap();
     Ok(inner.data.contains_key(&id))
   }
@@ -237,17 +237,17 @@ impl<M: Model> MockStore<M> {
     inner.data.len()
   }
 
-  /// Check if the store is empty (synchronous version for testing).
+  /// Check if the database is empty (synchronous version for testing).
   pub fn is_empty(&self) -> bool { self.len() == 0 }
 
   // Helper methods
 
   fn check_unique_violations(
     &self,
-    inner: &MockStoreInner<M>,
+    inner: &MockDatabaseInner<M>,
     model: &M,
     exclude_id: Option<RecordId<M>>,
-  ) -> StoreResult<()> {
+  ) -> DatabaseResult<()> {
     let indices = M::indices();
 
     for def in indices.definitions {
@@ -263,7 +263,7 @@ impl<M: Model> MockStore<M> {
         // Check if any existing ID is different from the one we're updating
         for existing_id in existing_ids {
           if Some(existing_id) != exclude_id.as_ref() {
-            return Err(StoreError::UniqueViolation {
+            return Err(DatabaseError::UniqueViolation {
               index: def.name.to_string(),
               value: index_key_str,
             });
@@ -277,9 +277,9 @@ impl<M: Model> MockStore<M> {
 
   fn insert_indices_inner(
     &self,
-    inner: &mut MockStoreInner<M>,
+    inner: &mut MockDatabaseInner<M>,
     model: &M,
-  ) -> StoreResult<()> {
+  ) -> DatabaseResult<()> {
     let indices = M::indices();
 
     for def in indices.definitions {
@@ -295,7 +295,7 @@ impl<M: Model> MockStore<M> {
 
   fn delete_indices_inner(
     &self,
-    inner: &mut MockStoreInner<M>,
+    inner: &mut MockDatabaseInner<M>,
     id: RecordId<M>,
   ) {
     // Remove all index entries for this record
@@ -315,30 +315,30 @@ impl<M: Model> MockStore<M> {
 }
 
 #[async_trait::async_trait]
-impl<M: Model> Store<M> for MockStore<M> {
-  async fn initialize_schema(&self) -> StoreResult<()> {
+impl<M: Model> DatabaseLike<M> for MockDatabase<M> {
+  async fn initialize_schema(&self) -> DatabaseResult<()> {
     self.initialize_schema().await
   }
 
-  async fn insert(&self, model: &M) -> StoreResult<()> {
+  async fn insert(&self, model: &M) -> DatabaseResult<()> {
     self.insert(model).await
   }
 
-  async fn update(&self, model: &M) -> StoreResult<()> {
+  async fn update(&self, model: &M) -> DatabaseResult<()> {
     self.update(model).await
   }
 
-  async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+  async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     self.delete(id).await
   }
 
-  async fn delete_and_return(&self, id: RecordId<M>) -> StoreResult<M> {
+  async fn delete_and_return(&self, id: RecordId<M>) -> DatabaseResult<M> {
     let model = self.get_or_error(id).await?;
     self.delete(id).await?;
     Ok(model)
   }
 
-  async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+  async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     self.get(id).await
   }
 
@@ -346,7 +346,7 @@ impl<M: Model> Store<M> for MockStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Option<M>> {
+  ) -> DatabaseResult<Option<M>> {
     self.find_by_unique_index(selector, key).await
   }
 
@@ -354,17 +354,17 @@ impl<M: Model> Store<M> for MockStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Vec<M>> {
+  ) -> DatabaseResult<Vec<M>> {
     self.find_by_index(selector, key).await
   }
 
-  async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+  async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     self.list(limit, offset).await
   }
 
-  async fn count(&self) -> StoreResult<i64> { self.count().await }
+  async fn count(&self) -> DatabaseResult<i64> { self.count().await }
 
-  async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+  async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     self.exists(id).await
   }
 }

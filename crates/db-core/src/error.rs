@@ -3,7 +3,7 @@ use thiserror::Error;
 
 /// Errors that can occur during storage operations.
 #[derive(Debug, Error, Diagnostic)]
-pub enum StoreError {
+pub enum DatabaseError {
   /// Record not found
   #[error("Record not found: {0}")]
   NotFound(String),

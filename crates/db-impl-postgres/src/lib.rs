@@ -2,24 +2,24 @@
 
 use std::marker::PhantomData;
 
-use db_core::{Store, StoreError, StoreResult};
+use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
 use miette::{Context, IntoDiagnostic, Report};
 use model::{IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
 use tracing::{debug, error, info, instrument, trace, warn};
 
-/// Postgres-backed storage for models implementing the `Model` trait.
+/// Postgres-backed storage for models implementing the [`Model`] trait.
 #[derive(Clone)]
-pub struct PostgresStore<M: Model> {
+pub struct PostgresDatabase<M: Model> {
   pool:     PgPool,
   _phantom: PhantomData<M>,
 }
 
-impl<M: Model> PostgresStore<M> {
-  /// Create a new PostgresStore with the given connection pool.
+impl<M: Model> PostgresDatabase<M> {
+  /// Create a new PostgresDatabase with the given connection pool.
   #[instrument(skip(pool), fields(model = M::TABLE_NAME))]
   pub fn new(pool: PgPool) -> Self {
-    debug!("Creating PostgresStore for model");
+    debug!("Creating PostgresDatabase for model");
     Self {
       pool,
       _phantom: PhantomData,
@@ -29,7 +29,7 @@ impl<M: Model> PostgresStore<M> {
   /// Initialize the database schema for this model.
   /// Creates the main table and all index tables.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  pub async fn initialize_schema(&self) -> StoreResult<()> {
+  pub async fn initialize_schema(&self) -> DatabaseResult<()> {
     info!("Initializing database schema");
 
     self.create_main_table().await?;
@@ -41,7 +41,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Create the main data table.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  async fn create_main_table(&self) -> StoreResult<()> {
+  async fn create_main_table(&self) -> DatabaseResult<()> {
     let table_name = M::TABLE_NAME;
     debug!("Creating main table: {}", table_name);
 
@@ -61,7 +61,7 @@ impl<M: Model> PostgresStore<M> {
       .await
       .into_diagnostic()
       .context("Failed to create main table")
-      .map_err(StoreError::Other)?;
+      .map_err(DatabaseError::Other)?;
 
     // Create index on updated_at for efficient queries
     let index_query = format!(
@@ -73,7 +73,7 @@ impl<M: Model> PostgresStore<M> {
       .await
       .into_diagnostic()
       .context("Failed to create updated_at index")
-      .map_err(StoreError::Other)?;
+      .map_err(DatabaseError::Other)?;
 
     debug!("Main table created successfully");
     Ok(())
@@ -81,7 +81,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Create index tables for all indices defined in the model.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  async fn create_index_tables(&self) -> StoreResult<()> {
+  async fn create_index_tables(&self) -> DatabaseResult<()> {
     let indices = M::indices();
     let index_count = indices.definitions.len();
 
@@ -118,7 +118,7 @@ impl<M: Model> PostgresStore<M> {
         .with_context(|| {
           format!("Failed to create index table: {}", index_table)
         })
-        .map_err(StoreError::Other)?;
+        .map_err(DatabaseError::Other)?;
 
       // Create index on index_key for efficient lookups
       let btree_index = format!(
@@ -132,7 +132,7 @@ impl<M: Model> PostgresStore<M> {
         .with_context(|| {
           format!("Failed to create btree index on: {}", index_table)
         })
-        .map_err(StoreError::Other)?;
+        .map_err(DatabaseError::Other)?;
 
       // For non-unique indices, also index by record_id for efficient deletion
       if !def.unique {
@@ -147,7 +147,7 @@ impl<M: Model> PostgresStore<M> {
           .with_context(|| {
             format!("Failed to create record_id index on: {}", index_table)
           })
-          .map_err(StoreError::Other)?;
+          .map_err(DatabaseError::Other)?;
       }
 
       debug!(index_name = def.name, "Index table created");
@@ -159,7 +159,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Insert a new model into the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
-  pub async fn insert(&self, model: &M) -> StoreResult<()> {
+  pub async fn insert(&self, model: &M) -> DatabaseResult<()> {
     debug!("Inserting model");
 
     let mut tx = self
@@ -167,12 +167,12 @@ impl<M: Model> PostgresStore<M> {
       .begin()
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     let id = model.id().to_string();
     let data = serde_json::to_value(model)
       .into_diagnostic()
-      .map_err(StoreError::Serialization)?;
+      .map_err(DatabaseError::Serialization)?;
 
     // Insert into main table
     let table_name = M::TABLE_NAME;
@@ -188,7 +188,7 @@ impl<M: Model> PostgresStore<M> {
       Ok(_) => trace!("Inserted into main table"),
       Err(e) => {
         error!(error = %e, "Failed to insert into main table");
-        return Err(StoreError::Database(Report::from_err(e)));
+        return Err(DatabaseError::Database(Report::from_err(e)));
       }
     }
 
@@ -201,14 +201,14 @@ impl<M: Model> PostgresStore<M> {
     tx.commit()
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
     info!("Model inserted successfully");
     Ok(())
   }
 
   /// Update an existing model in the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
-  pub async fn update(&self, model: &M) -> StoreResult<()> {
+  pub async fn update(&self, model: &M) -> DatabaseResult<()> {
     debug!("Updating model");
 
     let mut tx = self
@@ -216,12 +216,12 @@ impl<M: Model> PostgresStore<M> {
       .begin()
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     let id = model.id();
     let data = serde_json::to_value(model)
       .into_diagnostic()
-      .map_err(StoreError::Serialization)?;
+      .map_err(DatabaseError::Serialization)?;
 
     // Update main table
     let table_name = M::TABLE_NAME;
@@ -236,11 +236,11 @@ impl<M: Model> PostgresStore<M> {
       .execute(&mut *tx)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     if result.rows_affected() == 0 {
       warn!("Update failed: record not found");
-      return Err(StoreError::NotFound(id.to_string()));
+      return Err(DatabaseError::NotFound(id.to_string()));
     }
 
     trace!(rows_affected = result.rows_affected(), "Updated main table");
@@ -254,14 +254,14 @@ impl<M: Model> PostgresStore<M> {
     tx.commit()
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
     info!("Model updated successfully");
     Ok(())
   }
 
   /// Delete a model from the database by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+  pub async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     debug!("Deleting model");
 
     let table_name = M::TABLE_NAME;
@@ -272,11 +272,11 @@ impl<M: Model> PostgresStore<M> {
       .execute(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     if result.rows_affected() == 0 {
       warn!("Delete failed: record not found");
-      return Err(StoreError::NotFound(id.to_string()));
+      return Err(DatabaseError::NotFound(id.to_string()));
     }
 
     // Index entries are automatically deleted via CASCADE
@@ -289,7 +289,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Get a model by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+  pub async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     debug!("Getting model by ID");
 
     let table_name = M::TABLE_NAME;
@@ -300,17 +300,17 @@ impl<M: Model> PostgresStore<M> {
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     match row {
       Some(row) => {
         let data: serde_json::Value = row
           .try_get("data")
           .into_diagnostic()
-          .map_err(StoreError::Serialization)?;
+          .map_err(DatabaseError::Serialization)?;
         let model: M = serde_json::from_value(data)
           .into_diagnostic()
-          .map_err(StoreError::Serialization)?;
+          .map_err(DatabaseError::Serialization)?;
 
         debug!("Model found");
         Ok(Some(model))
@@ -324,11 +324,11 @@ impl<M: Model> PostgresStore<M> {
 
   /// Get a model by ID, returning an error if not found.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get_or_error(&self, id: RecordId<M>) -> StoreResult<M> {
+  pub async fn get_or_error(&self, id: RecordId<M>) -> DatabaseResult<M> {
     self
       .get(id)
       .await?
-      .ok_or_else(|| StoreError::NotFound(id.to_string()))
+      .ok_or_else(|| DatabaseError::NotFound(id.to_string()))
   }
 
   /// Find a model by a unique index.
@@ -337,16 +337,16 @@ impl<M: Model> PostgresStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Option<M>> {
+  ) -> DatabaseResult<Option<M>> {
     debug!("Finding by unique index");
 
     let indices = M::indices();
     let index_def = indices
       .get(selector)
-      .ok_or_else(|| StoreError::IndexNotFound(selector.to_string()))?;
+      .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
     if !index_def.unique {
-      return Err(StoreError::IndexNotUnique(selector.to_string()));
+      return Err(DatabaseError::IndexNotUnique(selector.to_string()));
     }
 
     let table_name = M::TABLE_NAME;
@@ -364,17 +364,17 @@ impl<M: Model> PostgresStore<M> {
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     match row {
       Some(row) => {
         let data: serde_json::Value = row
           .try_get("data")
           .into_diagnostic()
-          .map_err(StoreError::Serialization)?;
+          .map_err(DatabaseError::Serialization)?;
         let model: M = serde_json::from_value(data)
           .into_diagnostic()
-          .map_err(StoreError::Serialization)?;
+          .map_err(DatabaseError::Serialization)?;
         debug!("Model found by unique index");
         Ok(Some(model))
       }
@@ -391,11 +391,11 @@ impl<M: Model> PostgresStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<M> {
+  ) -> DatabaseResult<M> {
     self
       .find_by_unique_index(selector, key)
       .await?
-      .ok_or_else(|| StoreError::NotFound(format!("{}={}", selector, key)))
+      .ok_or_else(|| DatabaseError::NotFound(format!("{}={}", selector, key)))
   }
 
   /// Find all models matching a non-unique index.
@@ -404,13 +404,13 @@ impl<M: Model> PostgresStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Vec<M>> {
+  ) -> DatabaseResult<Vec<M>> {
     debug!("Finding by index");
 
     let indices = M::indices();
     let index_def = indices
       .get(selector)
-      .ok_or_else(|| StoreError::IndexNotFound(selector.to_string()))?;
+      .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
     let table_name = M::TABLE_NAME;
     let index_table = format!("{}__idx_{}", table_name, index_def.name);
@@ -428,7 +428,7 @@ impl<M: Model> PostgresStore<M> {
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     let count = rows.len();
     let mut results = Vec::with_capacity(count);
@@ -437,11 +437,11 @@ impl<M: Model> PostgresStore<M> {
       let data: serde_json::Value = row
         .try_get("data")
         .into_diagnostic()
-        .map_err(StoreError::Serialization)?;
+        .map_err(DatabaseError::Serialization)?;
 
       let model: M = serde_json::from_value(data)
         .into_diagnostic()
-        .map_err(StoreError::Serialization)?;
+        .map_err(DatabaseError::Serialization)?;
 
       results.push(model);
     }
@@ -452,7 +452,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// List all models, ordered by updated_at descending.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, limit = limit, offset = offset))]
-  pub async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+  pub async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     debug!("Listing models");
 
     let table_name = M::TABLE_NAME;
@@ -467,7 +467,7 @@ impl<M: Model> PostgresStore<M> {
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     let count = rows.len();
     let mut results = Vec::with_capacity(count);
@@ -476,11 +476,11 @@ impl<M: Model> PostgresStore<M> {
       let data: serde_json::Value = row
         .try_get("data")
         .into_diagnostic()
-        .map_err(StoreError::Serialization)?;
+        .map_err(DatabaseError::Serialization)?;
 
       let model: M = serde_json::from_value(data)
         .into_diagnostic()
-        .map_err(StoreError::Serialization)?;
+        .map_err(DatabaseError::Serialization)?;
 
       results.push(model);
     }
@@ -491,7 +491,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Count total number of records.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  pub async fn count(&self) -> StoreResult<i64> {
+  pub async fn count(&self) -> DatabaseResult<i64> {
     debug!("Counting models");
 
     let table_name = M::TABLE_NAME;
@@ -501,12 +501,12 @@ impl<M: Model> PostgresStore<M> {
       .fetch_one(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?;
+      .map_err(DatabaseError::Database)?;
 
     let count: i64 = row
       .try_get("count")
       .into_diagnostic()
-      .map_err(StoreError::Serialization)?;
+      .map_err(DatabaseError::Serialization)?;
 
     debug!(count = count, "Model count retrieved");
     Ok(count)
@@ -514,7 +514,7 @@ impl<M: Model> PostgresStore<M> {
 
   /// Check if a record exists by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+  pub async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     debug!("Checking if model exists");
 
     let table_name = M::TABLE_NAME;
@@ -525,7 +525,7 @@ impl<M: Model> PostgresStore<M> {
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
-      .map_err(StoreError::Database)?
+      .map_err(DatabaseError::Database)?
       .is_some();
 
     debug!(exists = exists, "Existence check complete");
@@ -538,7 +538,7 @@ impl<M: Model> PostgresStore<M> {
     &self,
     tx: &mut sqlx::Transaction<'_, Postgres>,
     model: &M,
-  ) -> StoreResult<()> {
+  ) -> DatabaseResult<()> {
     trace!("Inserting index entries");
 
     let id = model.id().to_string();
@@ -571,13 +571,13 @@ impl<M: Model> PostgresStore<M> {
       {
         Ok(_) => {}
         Err(e) if Self::is_unique_violation(&e) => {
-          return Err(StoreError::UniqueViolation {
+          return Err(DatabaseError::UniqueViolation {
             index: def.name.to_string(),
             value: index_key,
           });
         }
         Err(e) => {
-          return Err(StoreError::Database(Report::from_err(e)));
+          return Err(DatabaseError::Database(Report::from_err(e)));
         }
       }
     }
@@ -592,7 +592,7 @@ impl<M: Model> PostgresStore<M> {
     &self,
     tx: &mut sqlx::Transaction<'_, Postgres>,
     id: RecordId<M>,
-  ) -> StoreResult<()> {
+  ) -> DatabaseResult<()> {
     trace!("Deleting index entries");
 
     let table_name = M::TABLE_NAME;
@@ -607,7 +607,7 @@ impl<M: Model> PostgresStore<M> {
         .execute(&mut **tx)
         .await
         .into_diagnostic()
-        .map_err(StoreError::Database)?;
+        .map_err(DatabaseError::Database)?;
 
       trace!(index_name = def.name, "Index entries deleted");
     }
@@ -638,30 +638,30 @@ impl<M: Model> PostgresStore<M> {
 }
 
 #[async_trait::async_trait]
-impl<M: Model> Store<M> for PostgresStore<M> {
-  async fn initialize_schema(&self) -> StoreResult<()> {
+impl<M: Model> DatabaseLike<M> for PostgresDatabase<M> {
+  async fn initialize_schema(&self) -> DatabaseResult<()> {
     self.initialize_schema().await
   }
 
-  async fn insert(&self, model: &M) -> StoreResult<()> {
+  async fn insert(&self, model: &M) -> DatabaseResult<()> {
     self.insert(model).await
   }
 
-  async fn update(&self, model: &M) -> StoreResult<()> {
+  async fn update(&self, model: &M) -> DatabaseResult<()> {
     self.update(model).await
   }
 
-  async fn delete(&self, id: RecordId<M>) -> StoreResult<()> {
+  async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     self.delete(id).await
   }
 
-  async fn delete_and_return(&self, id: RecordId<M>) -> StoreResult<M> {
+  async fn delete_and_return(&self, id: RecordId<M>) -> DatabaseResult<M> {
     let model = self.get_or_error(id).await?;
     self.delete(id).await?;
     Ok(model)
   }
 
-  async fn get(&self, id: RecordId<M>) -> StoreResult<Option<M>> {
+  async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     self.get(id).await
   }
 
@@ -669,7 +669,7 @@ impl<M: Model> Store<M> for PostgresStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Option<M>> {
+  ) -> DatabaseResult<Option<M>> {
     self.find_by_unique_index(selector, key).await
   }
 
@@ -677,17 +677,17 @@ impl<M: Model> Store<M> for PostgresStore<M> {
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> StoreResult<Vec<M>> {
+  ) -> DatabaseResult<Vec<M>> {
     self.find_by_index(selector, key).await
   }
 
-  async fn list(&self, limit: u32, offset: u32) -> StoreResult<Vec<M>> {
+  async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     self.list(limit, offset).await
   }
 
-  async fn count(&self) -> StoreResult<i64> { self.count().await }
+  async fn count(&self) -> DatabaseResult<i64> { self.count().await }
 
-  async fn exists(&self, id: RecordId<M>) -> StoreResult<bool> {
+  async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     self.exists(id).await
   }
 }
