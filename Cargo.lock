@@ -159,6 +159,7 @@ dependencies = [
  "db-core",
  "db-impl-mock",
  "db-impl-postgres",
+ "miette",
  "model",
  "serde",
  "tokio",
