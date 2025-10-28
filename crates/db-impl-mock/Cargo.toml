@@ -1,0 +1,15 @@
+[package]
+name = "db-impl-mock"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+db-core = { path = "../db-core" }
+model = { path = "../model" }
+
+miette.workspace = true
+
+[lints]
+workspace = true

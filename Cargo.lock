@@ -165,6 +165,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "db-impl-mock"
+version = "0.1.0"
+dependencies = [
+ "db-core",
+ "miette",
+ "model",
+]
+
+[[package]]
 name = "db-impl-postgres"
 version = "0.1.0"
 dependencies = [
