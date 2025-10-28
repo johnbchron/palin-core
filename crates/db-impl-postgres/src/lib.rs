@@ -17,13 +17,16 @@ pub struct PostgresDatabase<M: Model> {
 
 impl<M: Model> PostgresDatabase<M> {
   /// Create a new PostgresDatabase with the given connection pool.
-  #[instrument(skip(pool), fields(model = M::TABLE_NAME))]
-  pub fn new(pool: PgPool) -> Self {
+  #[instrument(fields(model = M::TABLE_NAME))]
+  pub async fn new(url: &str) -> miette::Result<Self> {
     debug!("Creating PostgresDatabase for model");
-    Self {
-      pool,
+    Ok(Self {
+      pool:     PgPool::connect(url)
+        .await
+        .into_diagnostic()
+        .context("failed to connect to database")?,
       _phantom: PhantomData,
-    }
+    })
   }
 
   /// Initialize the database schema for this model.
