@@ -130,10 +130,10 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     selector_variants.push(quote! { #variant_ident });
 
     index_definitions.push(quote! {
-        IndexDefinition::new(
+        ::model::IndexDefinition::new(
             #field_name_snake,
             true,
-            |m: &#struct_name| vec![IndexValue::from(m.#field.clone())]
+            |m: &#struct_name| vec![model::IndexValue::from(m.#field.clone())]
         )
     });
   }
@@ -147,10 +147,10 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     selector_variants.push(quote! { #variant_ident });
 
     index_definitions.push(quote! {
-        IndexDefinition::new(
+        model::IndexDefinition::new(
             #field_name_snake,
             false,
-            |m: &#struct_name| vec![IndexValue::from(m.#field.clone())]
+            |m: &#struct_name| vec![model::IndexValue::from(m.#field.clone())]
         )
     });
   }
@@ -165,7 +165,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     selector_variants.push(quote! { #variant_ident });
 
     index_definitions.push(quote! {
-        IndexDefinition::new(
+        model::IndexDefinition::new(
             #name,
             false,
             #extract_fn
@@ -183,7 +183,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
     selector_variants.push(quote! { #variant_ident });
 
     index_definitions.push(quote! {
-        IndexDefinition::new(
+        model::IndexDefinition::new(
             #name,
             true,
             #extract_fn
@@ -237,21 +237,21 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
 
       #display_impl
 
-      impl Model for #struct_name {
+      impl model::Model for #struct_name {
           const TABLE_NAME: &'static str = #table_name;
 
           type IndexSelector = #index_selector_name;
 
-          fn indices() -> &'static IndexRegistry<Self> {
-              static REGISTRY: std::sync::OnceLock<IndexRegistry<#struct_name>> =
+          fn indices() -> &'static model::IndexRegistry<Self> {
+              static REGISTRY: std::sync::OnceLock<model::IndexRegistry<#struct_name>> =
                   std::sync::OnceLock::new();
 
               REGISTRY.get_or_init(|| {
-                  const DEFINITIONS: &[IndexDefinition<#struct_name>] = &[
+                  const DEFINITIONS: &[model::IndexDefinition<#struct_name>] = &[
                       #(#index_definitions),*
                   ];
 
-                  IndexRegistry::new(DEFINITIONS)
+                  model::IndexRegistry::new(DEFINITIONS)
               })
           }
 

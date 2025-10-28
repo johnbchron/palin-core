@@ -9,5 +9,9 @@ db-impl-mock = { path = "../db-impl-mock" }
 db-impl-postgres = { path = "../db-impl-postgres" }
 model = { path = "../model" }
 
+[dev-dependencies]
+serde.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread"] }
+
 [lints]
 workspace = true

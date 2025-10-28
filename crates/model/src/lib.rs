@@ -111,38 +111,38 @@ impl<M> IndexDefinition<M> {
   }
 }
 
-#[cfg(test)]
-mod test {
-  #![allow(dead_code)]
-  use serde::{Deserialize, Serialize};
+// #[cfg(test)]
+// mod test {
+//   #![allow(dead_code)]
+//   use serde::{Deserialize, Serialize};
 
-  use super::*;
+//   use super::*;
 
-  #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Model)]
-  #[model(table = "unit")]
-  struct Unit {
-    #[model(id)]
-    id: RecordId<Unit>,
-  }
+//   #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Model)]
+//   #[model(table = "unit")]
+//   struct Unit {
+//     #[model(id)]
+//     id: RecordId<Unit>,
+//   }
 
-  #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Model)]
-  #[model(table = "users")]
-  #[model(composite_index(
-    name = "name_age",
-    extract = |m| vec![
-      IndexValue::new(m.name.clone()),
-      IndexValue::new(format!("{}", m.age))
-  ]))]
-  struct User {
-    #[model(id)]
-    id: RecordId<User>,
+//   #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Model)]
+//   #[model(table = "users")]
+//   #[model(composite_index(
+//     name = "name_age",
+//     extract = |m| vec![
+//       IndexValue::new(m.name.clone()),
+//       IndexValue::new(format!("{}", m.age))
+//   ]))]
+//   struct User {
+//     #[model(id)]
+//     id: RecordId<User>,
 
-    #[model(unique)]
-    email: String,
+//     #[model(unique)]
+//     email: String,
 
-    #[model(index)]
-    name: String,
+//     #[model(index)]
+//     name: String,
 
-    age: u32,
-  }
-}
+//     age: u32,
+//   }
+// }

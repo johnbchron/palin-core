@@ -66,6 +66,10 @@ impl<T> TryFrom<String> for RecordId<T> {
 impl<T> RecordId<T> {
   /// Creates a new [`RecordId`].
   pub fn new() -> Self { Self(Ulid::new(), PhantomData) }
+  /// Creates a new [`RecordId`] from a [`Ulid`] constructed from a [`u128`].
+  pub const fn from_ulid_u128(value: u128) -> Self {
+    Self::from_ulid(Ulid(value))
+  }
   /// Creates a new [`RecordId`] from a [`Ulid`].
   pub const fn from_ulid(ulid: Ulid) -> Self { Self(ulid, PhantomData) }
   /// Returns the inner [`Ulid`].
