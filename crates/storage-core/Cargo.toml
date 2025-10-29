@@ -1,0 +1,17 @@
+[package]
+name = "storage-core"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures.workspace = true
+miette.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true
