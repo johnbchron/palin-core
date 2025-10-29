@@ -31,8 +31,6 @@ pub struct BlobMetadata {
 pub struct UploadOptions {
   /// Content type to set
   pub content_type: Option<String>,
-  /// Custom metadata
-  pub metadata:     Option<HashMap<String, String>>,
   /// Whether to overwrite existing blob
   pub overwrite:    bool,
 }
