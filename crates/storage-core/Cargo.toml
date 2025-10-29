@@ -6,6 +6,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
+storage-types = { path = "../storage-types" }
+
 async-trait.workspace = true
 bytes.workspace = true
 chrono.workspace = true
