@@ -6,9 +6,41 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::stream::Stream;
+use serde::{Deserialize, Serialize};
 
 /// Type alias for streaming data
 pub type ByteStream = Pin<Box<dyn Stream<Item = StorageResult<Bytes>> + Send>>;
+
+/// The key used for a blob.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+pub struct BlobKey(String);
+
+impl BlobKey {
+  /// Create a new blob key
+  pub fn new(key: impl Into<String>) -> Self { Self(key.into()) }
+  /// Get the key as a string slice
+  pub fn as_str(&self) -> &str { &self.0 }
+  /// Convert into inner String
+  pub fn into_inner(self) -> String { self.0 }
+}
+
+impl fmt::Display for BlobKey {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    write!(f, "{}", self.0)
+  }
+}
+
+impl From<String> for BlobKey {
+  fn from(s: String) -> Self { Self(s) }
+}
+
+impl From<&str> for BlobKey {
+  fn from(s: &str) -> Self { Self(s.to_string()) }
+}
+
+impl AsRef<str> for BlobKey {
+  fn as_ref(&self) -> &str { &self.0 }
+}
 
 /// Metadata associated with a blob object
 #[derive(Debug, Clone)]
@@ -51,7 +83,7 @@ pub struct ListOptions {
 #[derive(Debug, Clone)]
 pub struct BlobEntry {
   /// The blob's key
-  pub key:           String,
+  pub key:           BlobKey,
   /// Size in bytes
   pub size:          u64,
   /// Last modified timestamp
@@ -82,7 +114,7 @@ impl fmt::Debug for ListResult {
 pub enum BlobStorageError {
   /// Blob not found.
   #[error("Blob not found: {0}")]
-  NotFound(String),
+  NotFound(BlobKey),
 
   /// Permission denied.
   #[error("Permission denied: {0}")]
@@ -128,27 +160,31 @@ pub trait BlobStorage: Send + Sync {
   ) -> StorageResult<()>;
 
   /// Download data from a blob as a stream
-  async fn get_stream(&self, key: &str) -> StorageResult<ByteStream>;
+  async fn get_stream(&self, key: &BlobKey) -> StorageResult<ByteStream>;
 
   /// Get metadata for a blob without downloading content
-  async fn head(&self, key: &str) -> StorageResult<BlobMetadata>;
+  async fn head(&self, key: &BlobKey) -> StorageResult<BlobMetadata>;
 
   /// Delete a blob
-  async fn delete(&self, key: &str) -> StorageResult<()>;
+  async fn delete(&self, key: &BlobKey) -> StorageResult<()>;
 
   /// Check if a blob exists
-  async fn exists(&self, key: &str) -> StorageResult<bool>;
+  async fn exists(&self, key: &BlobKey) -> StorageResult<bool>;
 
   /// List blobs with optional filtering, returns a stream of entries
   async fn list(&self, options: ListOptions) -> StorageResult<ListResult>;
 
   /// Copy a blob from one key to another
-  async fn copy(&self, from_key: &str, to_key: &str) -> StorageResult<()>;
+  async fn copy(
+    &self,
+    from_key: &BlobKey,
+    to_key: &BlobKey,
+  ) -> StorageResult<()>;
 
   /// Get a pre-signed URL for temporary access (if supported)
   async fn get_presigned_url(
     &self,
-    key: &str,
+    key: &BlobKey,
     expiry: std::time::Duration,
   ) -> StorageResult<String>;
 }
