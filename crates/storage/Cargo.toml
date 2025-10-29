@@ -1,0 +1,13 @@
+[package]
+name = "storage"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+storage-core = { path = "../storage-core" }
+storage-s3 = { path = "../storage-s3" }
+
+[lints]
+workspace = true

@@ -3,9 +3,9 @@
 mod errors;
 
 use miette::{Context, IntoDiagnostic};
-use s3::Bucket;
+use s3::{Bucket, creds::Credentials};
 use storage_core::{
-  BlobKey, BlobMetadata, BlobStorageLike, BlobStorageError, ByteStream,
+  BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, ByteStream,
   StorageResult, UploadOptions,
 };
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -17,6 +17,35 @@ use self::errors::s3_error_to_blob_storage_error;
 #[derive(Debug)]
 pub struct BlobStorageS3 {
   bucket: Bucket,
+}
+
+impl BlobStorageS3 {
+  /// Creates a new [`BlobStorageS3`].
+  pub fn new(
+    bucket: &str,
+    region: &str,
+    endpoint: &str,
+    access_key: Option<&str>,
+    secret_access_key: Option<&str>,
+  ) -> StorageResult<Self> {
+    let region = s3::Region::Custom {
+      region:   region.to_owned(),
+      endpoint: endpoint.to_owned(),
+    };
+
+    let credentials = Credentials {
+      access_key:     access_key.map(ToOwned::to_owned),
+      secret_key:     secret_access_key.map(ToOwned::to_owned),
+      security_token: None,
+      session_token:  None,
+      expiration:     None,
+    };
+
+    Ok(BlobStorageS3 {
+      bucket: *Bucket::new(bucket, region, credentials)
+        .map_err(s3_error_to_blob_storage_error)?,
+    })
+  }
 }
 
 #[async_trait::async_trait]
