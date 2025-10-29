@@ -1,0 +1,14 @@
+
+name: nix-checks
+
+on:
+  pull_request:
+
+jobs:
+  lints:
+    name: Nix Checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: DeterminateSystems/nix-installer-action@main
+      - run: nix flake check -L
