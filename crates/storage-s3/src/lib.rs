@@ -5,7 +5,7 @@ mod errors;
 use miette::{Context, IntoDiagnostic};
 use s3::Bucket;
 use storage_core::{
-  BlobKey, BlobMetadata, BlobStorage, BlobStorageError, ByteStream,
+  BlobKey, BlobMetadata, BlobStorageLike, BlobStorageError, ByteStream,
   StorageResult, UploadOptions,
 };
 use tokio_util::io::{ReaderStream, StreamReader};
@@ -20,7 +20,7 @@ pub struct BlobStorageS3 {
 }
 
 #[async_trait::async_trait]
-impl BlobStorage for BlobStorageS3 {
+impl BlobStorageLike for BlobStorageS3 {
   #[instrument(skip(self, data))]
   async fn put_stream(
     &self,

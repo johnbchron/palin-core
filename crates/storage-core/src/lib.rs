@@ -119,7 +119,7 @@ pub type StorageResult<T> = std::result::Result<T, BlobStorageError>;
 
 /// Main trait for blob storage operations
 #[async_trait]
-pub trait BlobStorage: Send + Sync {
+pub trait BlobStorageLike: Send + Sync {
   /// Upload data from a stream to a blob
   async fn put_stream(
     &self,
