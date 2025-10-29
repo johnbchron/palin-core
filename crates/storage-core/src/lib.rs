@@ -6,6 +6,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::stream::Stream;
+use miette::Diagnostic;
 pub use storage_types::BlobKey;
 
 /// Type alias for streaming data
@@ -78,7 +79,7 @@ impl fmt::Debug for ListResult {
 }
 
 /// Error types for blob storage operations
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum BlobStorageError {
   /// Blob not found.
   #[error("Blob not found: {0}")]
@@ -86,15 +87,15 @@ pub enum BlobStorageError {
 
   /// Permission denied.
   #[error("Permission denied: {0}")]
-  PermissionDenied(String),
+  PermissionDenied(miette::Report),
 
   /// Invalid config.
   #[error("Invalid configuration: {0}")]
-  InvalidConfig(String),
+  InvalidConfig(miette::Report),
 
   /// Network error.
   #[error("Network error: {0}")]
-  NetworkError(String),
+  NetworkError(miette::Report),
 
   /// IO error.
   #[error("IO error: {0}")]
@@ -102,15 +103,15 @@ pub enum BlobStorageError {
 
   /// Serialization error.
   #[error("Serialization error: {0}")]
-  SerializationError(String),
+  SerializationError(miette::Report),
 
   /// Stream error.
   #[error("Stream error: {0}")]
-  StreamError(String),
+  StreamError(miette::Report),
 
   /// Unknown error.
   #[error("Unknown error: {0}")]
-  Unknown(String),
+  Unknown(miette::Report),
 }
 
 /// A type alias for [`Result`] with [`BlobStorageError`].
