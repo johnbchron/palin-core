@@ -9,7 +9,8 @@ use futures::stream::Stream;
 pub use storage_types::BlobKey;
 
 /// Type alias for streaming data
-pub type ByteStream = Pin<Box<dyn Stream<Item = StorageResult<Bytes>> + Send>>;
+pub type ByteStream =
+  Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send>>;
 
 /// Metadata associated with a blob object
 #[derive(Debug, Clone)]
