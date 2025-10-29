@@ -6,7 +6,7 @@ use async_trait::async_trait;
 use bytes::Bytes;
 use chrono::{DateTime, Utc};
 use futures::stream::Stream;
-use storage_types::BlobKey;
+pub use storage_types::BlobKey;
 
 /// Type alias for streaming data
 pub type ByteStream = Pin<Box<dyn Stream<Item = StorageResult<Bytes>> + Send>>;
