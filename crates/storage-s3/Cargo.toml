@@ -1,0 +1,27 @@
+[package]
+name = "storage-s3"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+storage-core = { path = "../storage-core" }
+
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures.workspace = true
+miette.workspace = true
+reqwest.workspace = true
+tokio-util.workspace = true
+tracing.workspace = true
+
+rust-s3 = { version = "0.37", default-features = false, features = [
+  "fail-on-err",
+  "tags",
+  "tokio-rustls-tls",
+] }
+
+[lints]
+workspace = true
