@@ -113,16 +113,16 @@ impl BlobStorageLike for BlobStorageS3 {
         .into_diagnostic()
         .context("content_length was negative in head response")
         .map_err(BlobStorageError::SerializationError)?,
-
-      content_type:  head.content_type,
-      etag:          head.e_tag,
-      metadata:      head.metadata.unwrap_or_default(),
+      content_encoding: head.content_encoding,
+      content_type:     head.content_type,
+      etag:             head.e_tag,
       last_modified:    head.last_modified,
       // .map(|s| s.parse())
       // .transpose()
       // .into_diagnostic()
       // .context("failed to parse last_modified from head response")
       // .map_err(BlobStorageError::SerializationError)?,
+      metadata:         head.metadata.unwrap_or_default(),
     })
   }
 

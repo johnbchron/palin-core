@@ -20,15 +20,17 @@ pub type ResponseStream =
 #[derive(Debug, Clone)]
 pub struct BlobMetadata {
   /// Size of the blob in bytes
-  pub size:          u64,
+  pub size:             u64,
+  /// Content encoding (compression, etc.)
+  pub content_encoding: Option<String>,
   /// Content type (MIME type)
-  pub content_type:  Option<String>,
+  pub content_type:     Option<String>,
   /// ETag for versioning/caching
-  pub etag:          Option<String>,
+  pub etag:             Option<String>,
   /// Last modified timestamp
   pub last_modified:    Option<String>,
   /// Custom metadata key-value pairs
-  pub metadata:      HashMap<String, String>,
+  pub metadata:         HashMap<String, String>,
 }
 
 /// Options for uploading blobs
