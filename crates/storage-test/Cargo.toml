@@ -1,0 +1,19 @@
+[package]
+name = "storage-test"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+storage = { path = "../storage" }
+
+bytes.workspace = true
+futures.workspace = true
+miette = { workspace = true, features = [ "fancy" ] }
+
+# this is not from the workspace so as not to pollute the shared feature set
+tokio = { version = "1", features = [ "macros", "rt-multi-thread" ] }
+
+[lints]
+workspace = true
