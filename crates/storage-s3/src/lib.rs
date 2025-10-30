@@ -13,7 +13,7 @@ use tracing::instrument;
 
 use self::errors::s3_error_to_blob_storage_error;
 
-/// [`BlobStorage`] implementer for S3-compatible backends.
+/// [`BlobStorageLike`] implementer for S3-compatible backends.
 #[derive(Debug)]
 pub struct BlobStorageS3 {
   bucket: Bucket,
