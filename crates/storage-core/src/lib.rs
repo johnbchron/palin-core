@@ -115,7 +115,7 @@ pub enum BlobStorageError {
 }
 
 /// A type alias for [`Result`] with [`BlobStorageError`].
-pub type StorageResult<T> = std::result::Result<T, BlobStorageError>;
+pub type BlobStorageResult<T> = std::result::Result<T, BlobStorageError>;
 
 /// Main trait for blob storage operations
 #[async_trait]
@@ -126,19 +126,19 @@ pub trait BlobStorageLike: Send + Sync {
     key: &str,
     data: ByteStream,
     options: UploadOptions,
-  ) -> StorageResult<()>;
+  ) -> BlobStorageResult<()>;
 
   /// Download data from a blob as a stream
-  async fn get_stream(&self, key: &BlobKey) -> StorageResult<ByteStream>;
+  async fn get_stream(&self, key: &BlobKey) -> BlobStorageResult<ByteStream>;
 
   /// Get metadata for a blob without downloading content
-  async fn head(&self, key: &BlobKey) -> StorageResult<BlobMetadata>;
+  async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata>;
 
   /// Delete a blob
-  async fn delete(&self, key: &BlobKey) -> StorageResult<()>;
+  async fn delete(&self, key: &BlobKey) -> BlobStorageResult<()>;
 
   /// Check if a blob exists
-  async fn exists(&self, key: &BlobKey) -> StorageResult<bool>;
+  async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool>;
 
   // /// List blobs with optional filtering, returns a stream of entries
   // async fn list(&self, options: ListOptions) -> StorageResult<ListResult>;
@@ -148,12 +148,12 @@ pub trait BlobStorageLike: Send + Sync {
     &self,
     from_key: &BlobKey,
     to_key: &BlobKey,
-  ) -> StorageResult<()>;
+  ) -> BlobStorageResult<()>;
 
   /// Get a pre-signed URL for temporary access (if supported)
   async fn get_presigned_url(
     &self,
     key: &BlobKey,
     expiry: std::time::Duration,
-  ) -> StorageResult<String>;
+  ) -> BlobStorageResult<String>;
 }

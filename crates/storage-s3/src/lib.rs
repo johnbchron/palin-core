@@ -5,8 +5,8 @@ mod errors;
 use miette::{Context, IntoDiagnostic};
 use s3::{Bucket, creds::Credentials};
 use storage_core::{
-  BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, ByteStream,
-  StorageResult, UploadOptions,
+  BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, BlobStorageResult,
+  ByteStream, UploadOptions,
 };
 use tokio_util::io::{ReaderStream, StreamReader};
 use tracing::instrument;
@@ -27,7 +27,7 @@ impl BlobStorageS3 {
     endpoint: &str,
     access_key: Option<&str>,
     secret_access_key: Option<&str>,
-  ) -> StorageResult<Self> {
+  ) -> BlobStorageResult<Self> {
     let region = s3::Region::Custom {
       region:   region.to_owned(),
       endpoint: endpoint.to_owned(),
@@ -56,7 +56,7 @@ impl BlobStorageLike for BlobStorageS3 {
     key: &str,
     data: ByteStream,
     options: UploadOptions,
-  ) -> StorageResult<()> {
+  ) -> BlobStorageResult<()> {
     // adapt to AsyncReader
     let mut stream = StreamReader::new(data);
 
@@ -80,7 +80,7 @@ impl BlobStorageLike for BlobStorageS3 {
   }
 
   #[instrument(skip(self))]
-  async fn get_stream(&self, key: &BlobKey) -> StorageResult<ByteStream> {
+  async fn get_stream(&self, key: &BlobKey) -> BlobStorageResult<ByteStream> {
     let data = self
       .bucket
       .get_object_stream(key)
@@ -92,7 +92,7 @@ impl BlobStorageLike for BlobStorageS3 {
   }
 
   #[instrument(skip(self))]
-  async fn head(&self, key: &BlobKey) -> StorageResult<BlobMetadata> {
+  async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
     let (head, _code) = self
       .bucket
       .head_object(key)
@@ -124,7 +124,7 @@ impl BlobStorageLike for BlobStorageS3 {
   }
 
   #[instrument(skip(self))]
-  async fn delete(&self, key: &BlobKey) -> StorageResult<()> {
+  async fn delete(&self, key: &BlobKey) -> BlobStorageResult<()> {
     self
       .bucket
       .delete_object(key)
@@ -135,7 +135,7 @@ impl BlobStorageLike for BlobStorageS3 {
   }
 
   #[instrument(skip(self))]
-  async fn exists(&self, key: &BlobKey) -> StorageResult<bool> {
+  async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
     self
       .bucket
       .object_exists(key)
@@ -148,7 +148,7 @@ impl BlobStorageLike for BlobStorageS3 {
     &self,
     from_key: &BlobKey,
     to_key: &BlobKey,
-  ) -> StorageResult<()> {
+  ) -> BlobStorageResult<()> {
     self
       .bucket
       .copy_object_internal(from_key, to_key)
@@ -162,7 +162,7 @@ impl BlobStorageLike for BlobStorageS3 {
     &self,
     key: &BlobKey,
     expiry: std::time::Duration,
-  ) -> StorageResult<String> {
+  ) -> BlobStorageResult<String> {
     self
       .bucket
       .presign_get(

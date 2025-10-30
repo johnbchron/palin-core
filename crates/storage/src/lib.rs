@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 pub use storage_core::{
-  BlobKey, BlobMetadata, BlobStorageError, ByteStream, StorageResult,
+  BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, ByteStream,
   UploadOptions,
 };
 use storage_s3::BlobStorageS3;
@@ -21,7 +21,7 @@ impl BlobStorage {
     endpoint: &str,
     access_key: Option<&str>,
     secret_access_key: Option<&str>,
-  ) -> StorageResult<Self> {
+  ) -> BlobStorageResult<Self> {
     Ok(BlobStorage {
       inner: Arc::new(BlobStorageS3::new(
         bucket,
@@ -41,23 +41,26 @@ impl BlobStorage {
     key: &str,
     data: ByteStream,
     options: UploadOptions,
-  ) -> StorageResult<()> {
+  ) -> BlobStorageResult<()> {
     self.inner.put_stream(key, data, options).await
   }
   /// Download data from a blob as a stream
-  pub async fn get_stream(&self, key: &BlobKey) -> StorageResult<ByteStream> {
+  pub async fn get_stream(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<ByteStream> {
     self.inner.get_stream(key).await
   }
   /// Get metadata for a blob without downloading content
-  pub async fn head(&self, key: &BlobKey) -> StorageResult<BlobMetadata> {
+  pub async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
     self.inner.head(key).await
   }
   /// Delete a blob
-  pub async fn delete(&self, key: &BlobKey) -> StorageResult<()> {
+  pub async fn delete(&self, key: &BlobKey) -> BlobStorageResult<()> {
     self.inner.delete(key).await
   }
   /// Check if a blob exists
-  pub async fn exists(&self, key: &BlobKey) -> StorageResult<bool> {
+  pub async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
     self.inner.exists(key).await
   }
   /// Copy a blob from one key to another
@@ -65,7 +68,7 @@ impl BlobStorage {
     &self,
     from_key: &BlobKey,
     to_key: &BlobKey,
-  ) -> StorageResult<()> {
+  ) -> BlobStorageResult<()> {
     self.inner.copy(from_key, to_key).await
   }
   /// Get a pre-signed URL for temporary access (if supported)
@@ -73,7 +76,7 @@ impl BlobStorage {
     &self,
     key: &BlobKey,
     expiry: std::time::Duration,
-  ) -> StorageResult<String> {
+  ) -> BlobStorageResult<String> {
     self.inner.get_presigned_url(key, expiry).await
   }
 }
