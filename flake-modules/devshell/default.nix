@@ -19,7 +19,7 @@ localFlake: { ... }: {
       commands = [
         {
           name = "check";
-          command = "nix flake check $@";
+          command = "nix flake check -L $@";
           help = "Runs nix flake checks.";
           category = "[nix actions]";
         }
