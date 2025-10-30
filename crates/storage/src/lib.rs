@@ -2,7 +2,10 @@
 
 use std::sync::Arc;
 
-use storage_core::StorageResult;
+pub use storage_core::{
+  BlobKey, BlobMetadata, BlobStorageError, ByteStream, StorageResult,
+  UploadOptions,
+};
 use storage_s3::BlobStorageS3;
 
 /// Frontend for a cloud storage interface.
@@ -28,5 +31,49 @@ impl BlobStorage {
         secret_access_key,
       )?),
     })
+  }
+}
+
+impl BlobStorage {
+  /// Upload data from a stream to a blob
+  pub async fn put_stream(
+    &self,
+    key: &str,
+    data: ByteStream,
+    options: UploadOptions,
+  ) -> StorageResult<()> {
+    self.inner.put_stream(key, data, options).await
+  }
+  /// Download data from a blob as a stream
+  pub async fn get_stream(&self, key: &BlobKey) -> StorageResult<ByteStream> {
+    self.inner.get_stream(key).await
+  }
+  /// Get metadata for a blob without downloading content
+  pub async fn head(&self, key: &BlobKey) -> StorageResult<BlobMetadata> {
+    self.inner.head(key).await
+  }
+  /// Delete a blob
+  pub async fn delete(&self, key: &BlobKey) -> StorageResult<()> {
+    self.inner.delete(key).await
+  }
+  /// Check if a blob exists
+  pub async fn exists(&self, key: &BlobKey) -> StorageResult<bool> {
+    self.inner.exists(key).await
+  }
+  /// Copy a blob from one key to another
+  pub async fn copy(
+    &self,
+    from_key: &BlobKey,
+    to_key: &BlobKey,
+  ) -> StorageResult<()> {
+    self.inner.copy(from_key, to_key).await
+  }
+  /// Get a pre-signed URL for temporary access (if supported)
+  pub async fn get_presigned_url(
+    &self,
+    key: &BlobKey,
+    expiry: std::time::Duration,
+  ) -> StorageResult<String> {
+    self.inner.get_presigned_url(key, expiry).await
   }
 }
