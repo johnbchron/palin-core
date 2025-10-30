@@ -4,8 +4,8 @@ use std::{collections::HashMap, io, pin::Pin};
 
 use async_trait::async_trait;
 use bytes::Bytes;
-use chrono::{DateTime, Utc};
 use futures::stream::Stream;
+// use chrono::{DateTime, Utc};
 use miette::Diagnostic;
 pub use storage_types::BlobKey;
 
@@ -23,7 +23,7 @@ pub struct BlobMetadata {
   /// ETag for versioning/caching
   pub etag:          Option<String>,
   /// Last modified timestamp
-  pub last_modified: Option<DateTime<Utc>>,
+  pub last_modified:    Option<String>,
   /// Custom metadata key-value pairs
   pub metadata:      HashMap<String, String>,
 }
@@ -56,7 +56,7 @@ pub struct BlobEntry {
   /// Size in bytes
   pub size:          u64,
   /// Last modified timestamp
-  pub last_modified: Option<DateTime<Utc>>,
+  pub last_modified: Option<String>,
   /// ETag if available
   pub etag:          Option<String>,
 }
