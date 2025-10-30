@@ -2,9 +2,10 @@
 
 use std::sync::Arc;
 
+use storage_core::RequestStream;
 pub use storage_core::{
-  BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, ByteStream,
-  UploadOptions,
+  BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, Bytes,
+  ResponseStream, UploadOptions,
 };
 use storage_s3::BlobStorageS3;
 
@@ -39,7 +40,7 @@ impl BlobStorage {
   pub async fn put_stream(
     &self,
     key: &str,
-    data: ByteStream,
+    data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {
     self.inner.put_stream(key, data, options).await
@@ -48,7 +49,7 @@ impl BlobStorage {
   pub async fn get_stream(
     &self,
     key: &BlobKey,
-  ) -> BlobStorageResult<ByteStream> {
+  ) -> BlobStorageResult<ResponseStream> {
     self.inner.get_stream(key).await
   }
   /// Get metadata for a blob without downloading content

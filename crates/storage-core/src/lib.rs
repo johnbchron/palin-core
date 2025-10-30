@@ -3,15 +3,18 @@
 use std::{collections::HashMap, io, pin::Pin};
 
 use async_trait::async_trait;
-use bytes::Bytes;
-use futures::stream::Stream;
+pub use bytes::Bytes;
 // use chrono::{DateTime, Utc};
+pub use futures::stream::Stream;
 use miette::Diagnostic;
 pub use storage_types::BlobKey;
 
-/// Type alias for streaming data
-pub type ByteStream =
+/// Type alias for streaming request data
+pub type RequestStream =
   Pin<Box<dyn Stream<Item = Result<Bytes, io::Error>> + Send>>;
+/// Type alias for streaming response data
+pub type ResponseStream =
+  Pin<Box<dyn Stream<Item = Result<Bytes, BlobStorageError>> + Send>>;
 
 /// Metadata associated with a blob object
 #[derive(Debug, Clone)]
@@ -124,12 +127,15 @@ pub trait BlobStorageLike: Send + Sync {
   async fn put_stream(
     &self,
     key: &str,
-    data: ByteStream,
+    data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()>;
 
   /// Download data from a blob as a stream
-  async fn get_stream(&self, key: &BlobKey) -> BlobStorageResult<ByteStream>;
+  async fn get_stream(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<ResponseStream>;
 
   /// Get metadata for a blob without downloading content
   async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata>;

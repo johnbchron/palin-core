@@ -2,13 +2,14 @@
 
 mod errors;
 
+use futures::TryStreamExt;
 use miette::{Context, IntoDiagnostic};
 use s3::{Bucket, creds::Credentials};
 use storage_core::{
   BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, BlobStorageResult,
-  ByteStream, UploadOptions,
+  RequestStream, ResponseStream, UploadOptions,
 };
-use tokio_util::io::{ReaderStream, StreamReader};
+use tokio_util::io::StreamReader;
 use tracing::instrument;
 
 use self::errors::s3_error_to_blob_storage_error;
@@ -54,7 +55,7 @@ impl BlobStorageLike for BlobStorageS3 {
   async fn put_stream(
     &self,
     key: &str,
-    data: ByteStream,
+    data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {
     // adapt to AsyncReader
@@ -80,13 +81,16 @@ impl BlobStorageLike for BlobStorageS3 {
   }
 
   #[instrument(skip(self))]
-  async fn get_stream(&self, key: &BlobKey) -> BlobStorageResult<ByteStream> {
+  async fn get_stream(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<ResponseStream> {
     let data = self
       .bucket
       .get_object_stream(key)
       .await
       .map_err(s3_error_to_blob_storage_error)?;
-    let data = Box::pin(ReaderStream::new(data));
+    let data = Box::pin(data.bytes.map_err(s3_error_to_blob_storage_error));
 
     Ok(data)
   }
@@ -100,7 +104,7 @@ impl BlobStorageLike for BlobStorageS3 {
       .map_err(s3_error_to_blob_storage_error)?;
 
     Ok(BlobMetadata {
-      size: head
+      size:             head
         .content_length
         .ok_or(BlobStorageError::NetworkError(miette::miette!(
           "head response did not include content_length"
