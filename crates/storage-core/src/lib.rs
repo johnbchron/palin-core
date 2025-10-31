@@ -4,7 +4,6 @@ use std::{collections::HashMap, io, pin::Pin};
 
 use async_trait::async_trait;
 pub use bytes::Bytes;
-// use chrono::{DateTime, Utc};
 pub use futures::stream::Stream;
 use miette::Diagnostic;
 pub use storage_types::BlobKey;
@@ -42,17 +41,6 @@ pub struct UploadOptions {
   pub overwrite:    bool,
 }
 
-// /// Options for listing blobs
-// #[derive(Debug, Clone, Default)]
-// pub struct ListOptions {
-//   /// Prefix to filter by
-//   pub prefix:             Option<String>,
-//   /// Maximum number of results
-//   pub max_results:        Option<usize>,
-//   /// Continuation token for pagination
-//   pub continuation_token: Option<String>,
-// }
-
 /// A single entry in a list operation
 #[derive(Debug, Clone)]
 pub struct BlobEntry {
@@ -65,23 +53,6 @@ pub struct BlobEntry {
   /// ETag if available
   pub etag:          Option<String>,
 }
-
-// /// Result of a list operation
-// pub struct ListResult {
-//   /// Stream of blob entries
-//   pub entries: Pin<Box<dyn Stream<Item = StorageResult<BlobEntry>> + Send>>,
-//   /// Continuation token for next page (if pagination is handled manually)
-//   pub continuation_token: Option<String>,
-// }
-
-// impl fmt::Debug for ListResult {
-//   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//     f.debug_struct("ListResult")
-//       .field("entries", &format_args!("_"))
-//       .field("continuation_token", &self.continuation_token)
-//       .finish()
-//   }
-// }
 
 /// Error types for blob storage operations
 #[derive(Debug, thiserror::Error, Diagnostic)]
@@ -147,9 +118,6 @@ pub trait BlobStorageLike: Send + Sync {
 
   /// Check if a blob exists
   async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool>;
-
-  // /// List blobs with optional filtering, returns a stream of entries
-  // async fn list(&self, options: ListOptions) -> StorageResult<ListResult>;
 
   /// Copy a blob from one key to another
   async fn copy(
