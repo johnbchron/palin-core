@@ -13,7 +13,7 @@ use storage_core::{
   BlobStorageResult, RequestStream, ResponseStream, UploadOptions,
 };
 use tokio::sync::RwLock;
-use tracing::instrument;
+use tracing::{debug, error, info, instrument, warn};
 
 /// Internal representation of a stored blob
 #[derive(Debug, Clone)]
@@ -32,6 +32,13 @@ impl StoredBlob {
   fn new(data: Bytes, content_type: Option<String>) -> Self {
     let etag = format!("{:x}", md5::compute(&data));
     let last_modified = Self::current_timestamp();
+
+    debug!(
+      data_size = data.len(),
+      content_type = ?content_type,
+      etag = %etag,
+      "Created new stored blob"
+    );
 
     Self {
       data,
@@ -75,27 +82,49 @@ pub struct BlobStorageMemory {
 
 impl BlobStorageMemory {
   /// Creates a new empty in-memory blob storage.
+  #[instrument]
   pub fn new() -> Self {
+    info!("Creating new in-memory blob storage");
     Self {
       storage: Arc::new(RwLock::new(HashMap::new())),
     }
   }
 
   /// Returns the number of blobs currently stored.
-  pub async fn len(&self) -> usize { self.storage.read().await.len() }
+  #[instrument(skip(self))]
+  pub async fn len(&self) -> usize {
+    let len = self.storage.read().await.len();
+    debug!(blob_count = len, "Retrieved blob count");
+    len
+  }
 
   /// Returns true if no blobs are stored.
-  pub async fn is_empty(&self) -> bool { self.storage.read().await.is_empty() }
+  #[instrument(skip(self))]
+  pub async fn is_empty(&self) -> bool {
+    let empty = self.storage.read().await.is_empty();
+    debug!(is_empty = empty, "Checked if storage is empty");
+    empty
+  }
 
   /// Clears all stored blobs.
-  pub async fn clear(&self) { self.storage.write().await.clear(); }
+  #[instrument(skip(self))]
+  pub async fn clear(&self) {
+    let count = self.storage.read().await.len();
+    self.storage.write().await.clear();
+    info!(cleared_count = count, "Cleared all blobs from storage");
+  }
 
   /// Lists all blob keys with optional prefix filter.
+  #[instrument(skip(self), fields(prefix = ?prefix))]
   pub async fn list(
     &self,
     prefix: Option<&str>,
   ) -> BlobStorageResult<Vec<BlobEntry>> {
+    debug!("Listing blobs");
+
     let storage = self.storage.read().await;
+    let total_blobs = storage.len();
+
     let mut entries: Vec<BlobEntry> = storage
       .iter()
       .filter(|(key, _)| {
@@ -116,6 +145,13 @@ impl BlobStorageMemory {
     // Sort by key for consistent ordering
     entries.sort_by(|a, b| a.key.as_str().cmp(b.key.as_str()));
 
+    info!(
+      total_blobs = total_blobs,
+      filtered_count = entries.len(),
+      prefix = ?prefix,
+      "Listed blobs successfully"
+    );
+
     Ok(entries)
   }
 }
@@ -126,26 +162,43 @@ impl Default for BlobStorageMemory {
 
 #[async_trait::async_trait]
 impl BlobStorageLike for BlobStorageMemory {
-  #[instrument(skip(self, data))]
+  #[instrument(
+    skip(self, data),
+    fields(
+      key = %key,
+      overwrite = options.overwrite,
+      content_type = ?options.content_type,
+    ),
+    err
+  )]
   async fn put_stream(
     &self,
     key: &BlobKey,
     data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {
+    debug!("Starting stream upload");
+
     // Check if we should overwrite
     if !options.overwrite {
+      debug!("Checking if blob already exists");
       let storage = self.storage.read().await;
       if storage.contains_key(key.as_str()) {
+        warn!("Blob already exists and overwrite=false");
         return Err(BlobStorageError::AlreadyExists(key.clone()));
       }
+      debug!("Blob does not exist, proceeding with upload");
     }
 
     // Collect the stream into a single Bytes object
-    let chunks: Vec<Bytes> = data
-      .try_collect()
-      .await
-      .map_err(|e| BlobStorageError::StreamError(miette::miette!(e)))?;
+    debug!("Collecting stream chunks");
+    let chunks: Vec<Bytes> = data.try_collect().await.map_err(|e| {
+      error!(error = ?e, "Failed to collect stream chunks");
+      BlobStorageError::StreamError(miette::miette!(e))
+    })?;
+
+    let chunk_count = chunks.len();
+    debug!(chunk_count = chunk_count, "Collected stream chunks");
 
     // Combine all chunks
     let total_size: usize = chunks.iter().map(|c| c.len()).sum();
@@ -153,6 +206,8 @@ impl BlobStorageLike for BlobStorageMemory {
     for chunk in chunks {
       combined.extend_from_slice(&chunk);
     }
+
+    debug!(total_size = total_size, "Combined chunks into single blob");
 
     let blob = StoredBlob::new(Bytes::from(combined), options.content_type);
 
@@ -163,65 +218,134 @@ impl BlobStorageLike for BlobStorageMemory {
       .await
       .insert(key.as_str().to_string(), blob);
 
+    info!(
+      size = total_size,
+      chunk_count = chunk_count,
+      "Blob uploaded successfully"
+    );
+
     Ok(())
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(key = %key),
+    err
+  )]
   async fn get_stream(
     &self,
     key: &BlobKey,
   ) -> BlobStorageResult<ResponseStream> {
+    debug!("Retrieving blob stream");
+
     let storage = self.storage.read().await;
-    let blob = storage
-      .get(key.as_str())
-      .ok_or_else(|| BlobStorageError::NotFound(key.clone()))?;
+    let blob = storage.get(key.as_str()).ok_or_else(|| {
+      error!("Blob not found");
+      BlobStorageError::NotFound(key.clone())
+    })?;
 
     let data = blob.data.clone();
+    let data_size = data.len();
+
+    debug!(size = data_size, "Retrieved blob data");
 
     // Create a stream that yields the data in chunks
     // For simplicity, we'll just yield the entire blob as one chunk
     let stream = stream::once(async move { Ok(data) });
 
+    info!(size = data_size, "Blob stream created successfully");
+
     Ok(Box::pin(stream))
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(key = %key),
+    err
+  )]
   async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
-    let storage = self.storage.read().await;
-    let blob = storage
-      .get(key.as_str())
-      .ok_or_else(|| BlobStorageError::NotFound(key.clone()))?;
+    debug!("Fetching blob metadata");
 
-    Ok(blob.metadata())
+    let storage = self.storage.read().await;
+    let blob = storage.get(key.as_str()).ok_or_else(|| {
+      error!("Blob not found");
+      BlobStorageError::NotFound(key.clone())
+    })?;
+
+    let metadata = blob.metadata();
+
+    info!(
+      size = metadata.size,
+      content_type = ?metadata.content_type,
+      etag = ?metadata.etag,
+      "Blob metadata retrieved successfully"
+    );
+
+    Ok(metadata)
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(key = %key),
+    err
+  )]
   async fn delete(&self, key: &BlobKey) -> BlobStorageResult<()> {
+    debug!("Deleting blob");
+
     let mut storage = self.storage.write().await;
-    storage
-      .remove(key.as_str())
-      .ok_or_else(|| BlobStorageError::NotFound(key.clone()))?;
+    let blob = storage.remove(key.as_str()).ok_or_else(|| {
+      error!("Blob not found");
+      BlobStorageError::NotFound(key.clone())
+    })?;
+
+    info!(size = blob.data.len(), "Blob deleted successfully");
 
     Ok(())
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(key = %key),
+    err
+  )]
   async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
+    debug!("Checking if blob exists");
+
     let storage = self.storage.read().await;
-    Ok(storage.contains_key(key.as_str()))
+    let exists = storage.contains_key(key.as_str());
+
+    debug!(exists = exists, "Blob existence check completed");
+
+    Ok(exists)
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(
+      from_key = %from_key,
+      to_key = %to_key,
+    ),
+    err
+  )]
   async fn copy(
     &self,
     from_key: &BlobKey,
     to_key: &BlobKey,
   ) -> BlobStorageResult<()> {
+    debug!("Copying blob");
+
     let storage = self.storage.read().await;
     let blob = storage
       .get(from_key.as_str())
-      .ok_or_else(|| BlobStorageError::NotFound(from_key.clone()))?
+      .ok_or_else(|| {
+        error!("Source blob not found");
+        BlobStorageError::NotFound(from_key.clone())
+      })?
       .clone();
+
+    let blob_size = blob.data.len();
+    debug!(size = blob_size, "Retrieved source blob for copying");
+
     drop(storage);
 
     // Update the last_modified timestamp for the copy
@@ -234,18 +358,34 @@ impl BlobStorageLike for BlobStorageMemory {
       .await
       .insert(to_key.as_str().to_string(), copied_blob);
 
+    info!(size = blob_size, "Blob copied successfully");
+
     Ok(())
   }
 
-  #[instrument(skip(self))]
+  #[instrument(
+    skip(self),
+    fields(
+      key = %key,
+      expiry_secs = expiry.as_secs(),
+    ),
+    err
+  )]
   async fn get_presigned_url(
     &self,
     key: &BlobKey,
     expiry: std::time::Duration,
   ) -> BlobStorageResult<String> {
-    // Validate duration (same as S3 implementation for consistency)
     let expiry_secs = expiry.as_secs();
+    debug!(expiry_secs = expiry_secs, "Generating presigned URL");
+
+    // Validate duration (same as S3 implementation for consistency)
     if expiry_secs > u32::MAX as u64 {
+      error!(
+        expiry_secs = expiry_secs,
+        max_secs = u32::MAX,
+        "Expiry duration exceeds maximum"
+      );
       return Err(BlobStorageError::InvalidInput(miette::miette!(
         "Expiry duration of {} seconds exceeds maximum supported duration of \
          {} seconds (~136 years)",
@@ -255,14 +395,24 @@ impl BlobStorageLike for BlobStorageMemory {
     }
 
     // Check if the blob exists
+    debug!("Checking if blob exists for presigned URL");
     let storage = self.storage.read().await;
     if !storage.contains_key(key.as_str()) {
+      error!("Blob not found");
       return Err(BlobStorageError::NotFound(key.clone()));
     }
 
     // For in-memory storage, presigned URLs don't make much sense,
     // but we can return a fake URL for testing purposes
-    Ok(format!("memory://blob/{}", key.as_str()))
+    let url = format!("memory://blob/{}", key.as_str());
+
+    info!(
+      expiry_secs = expiry_secs,
+      url_length = url.len(),
+      "Presigned URL generated successfully"
+    );
+
+    Ok(url)
   }
 }
 
