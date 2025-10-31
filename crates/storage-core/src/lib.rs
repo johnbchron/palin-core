@@ -37,7 +37,8 @@ pub struct BlobMetadata {
 pub struct UploadOptions {
   /// Content type to set
   pub content_type: Option<String>,
-  /// Whether to overwrite existing blob
+  /// Whether to overwrite existing blob (if false, return error if blob
+  /// exists)
   pub overwrite:    bool,
 }
 
@@ -61,6 +62,10 @@ pub enum BlobStorageError {
   #[error("Blob not found: {0}")]
   NotFound(BlobKey),
 
+  /// Blob already exists (when overwrite is false).
+  #[error("Blob already exists: {0}")]
+  AlreadyExists(BlobKey),
+
   /// Permission denied.
   #[error("Permission denied: {0}")]
   PermissionDenied(miette::Report),
@@ -68,6 +73,10 @@ pub enum BlobStorageError {
   /// Invalid config.
   #[error("Invalid configuration: {0}")]
   InvalidConfig(miette::Report),
+
+  /// Invalid input (e.g., duration out of range).
+  #[error("Invalid input: {0}")]
+  InvalidInput(miette::Report),
 
   /// Network error.
   #[error("Network error: {0}")]
@@ -99,7 +108,7 @@ pub trait BlobStorageLike: Send + Sync {
   /// Upload data from a stream to a blob
   async fn put_stream(
     &self,
-    key: &str,
+    key: &BlobKey,
     data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()>;
@@ -127,6 +136,12 @@ pub trait BlobStorageLike: Send + Sync {
   ) -> BlobStorageResult<()>;
 
   /// Get a pre-signed URL for temporary access (if supported)
+  ///
+  /// # Errors
+  ///
+  /// Returns `InvalidInput` if the expiry duration is longer than the maximum
+  /// supported by the backend (typically limited to u32::MAX seconds, ~136
+  /// years).
   async fn get_presigned_url(
     &self,
     key: &BlobKey,

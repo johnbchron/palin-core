@@ -47,7 +47,7 @@ impl BlobStorage {
   /// Upload data from a stream to a blob
   pub async fn put_stream(
     &self,
-    key: &str,
+    key: &BlobKey,
     data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {

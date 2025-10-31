@@ -54,10 +54,18 @@ impl BlobStorageLike for BlobStorageS3 {
   #[instrument(skip(self, data))]
   async fn put_stream(
     &self,
-    key: &str,
+    key: &BlobKey,
     data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {
+    // Check if object exists when overwrite is false
+    if !options.overwrite {
+      let exists = self.exists(key).await?;
+      if exists {
+        return Err(BlobStorageError::AlreadyExists(key.clone()));
+      }
+    }
+
     // adapt to AsyncReader
     let mut stream = StreamReader::new(data);
 
@@ -166,13 +174,24 @@ impl BlobStorageLike for BlobStorageS3 {
     key: &BlobKey,
     expiry: std::time::Duration,
   ) -> BlobStorageResult<String> {
+    let expiry_secs = expiry.as_secs();
+
+    // Validate that expiry fits in u32 (S3 API limitation)
+    if expiry_secs > u32::MAX as u64 {
+      return Err(BlobStorageError::InvalidInput(miette::miette!(
+        "Expiry duration of {} seconds exceeds maximum supported duration of \
+         {} seconds (~136 years)",
+        expiry_secs,
+        u32::MAX
+      )));
+    }
+
+    // Ensure at least 1 second
+    let expiry_u32 = expiry_secs.max(1) as u32;
+
     self
       .bucket
-      .presign_get(
-        key,
-        expiry.as_secs().max(1).min(u32::MAX as u64) as u32,
-        None,
-      )
+      .presign_get(key, expiry_u32, None)
       .await
       .map_err(s3_error_to_blob_storage_error)
   }

@@ -129,18 +129,15 @@ impl BlobStorageLike for BlobStorageMemory {
   #[instrument(skip(self, data))]
   async fn put_stream(
     &self,
-    key: &str,
+    key: &BlobKey,
     data: RequestStream,
     options: UploadOptions,
   ) -> BlobStorageResult<()> {
     // Check if we should overwrite
     if !options.overwrite {
       let storage = self.storage.read().await;
-      if storage.contains_key(key) {
-        return Err(BlobStorageError::PermissionDenied(miette::miette!(
-          "Blob already exists and overwrite is false: {}",
-          key
-        )));
+      if storage.contains_key(key.as_str()) {
+        return Err(BlobStorageError::AlreadyExists(key.clone()));
       }
     }
 
@@ -160,7 +157,11 @@ impl BlobStorageLike for BlobStorageMemory {
     let blob = StoredBlob::new(Bytes::from(combined), options.content_type);
 
     // Store the blob
-    self.storage.write().await.insert(key.to_string(), blob);
+    self
+      .storage
+      .write()
+      .await
+      .insert(key.as_str().to_string(), blob);
 
     Ok(())
   }
@@ -240,8 +241,19 @@ impl BlobStorageLike for BlobStorageMemory {
   async fn get_presigned_url(
     &self,
     key: &BlobKey,
-    _expiry: std::time::Duration,
+    expiry: std::time::Duration,
   ) -> BlobStorageResult<String> {
+    // Validate duration (same as S3 implementation for consistency)
+    let expiry_secs = expiry.as_secs();
+    if expiry_secs > u32::MAX as u64 {
+      return Err(BlobStorageError::InvalidInput(miette::miette!(
+        "Expiry duration of {} seconds exceeds maximum supported duration of \
+         {} seconds (~136 years)",
+        expiry_secs,
+        u32::MAX
+      )));
+    }
+
     // Check if the blob exists
     let storage = self.storage.read().await;
     if !storage.contains_key(key.as_str()) {
@@ -273,7 +285,7 @@ mod tests {
     }));
 
     storage
-      .put_stream(key.as_str(), stream, UploadOptions {
+      .put_stream(&key, stream, UploadOptions {
         content_type: Some("text/plain".to_string()),
         overwrite:    true,
       })
@@ -298,7 +310,7 @@ mod tests {
       async move { Ok(data.clone()) }
     }));
     storage
-      .put_stream(key.as_str(), stream, UploadOptions {
+      .put_stream(&key, stream, UploadOptions {
         content_type: Some("text/plain".to_string()),
         overwrite:    true,
       })
@@ -318,7 +330,7 @@ mod tests {
 
     let stream = Box::pin(stream::once(async { Ok(data) }));
     storage
-      .put_stream(key.as_str(), stream, UploadOptions::default())
+      .put_stream(&key, stream, UploadOptions::default())
       .await
       .unwrap();
 
@@ -339,7 +351,7 @@ mod tests {
       async move { Ok(data.clone()) }
     }));
     storage
-      .put_stream(from_key.as_str(), stream, UploadOptions::default())
+      .put_stream(&from_key, stream, UploadOptions::default())
       .await
       .unwrap();
 
@@ -356,7 +368,7 @@ mod tests {
 
     // Add some blobs
     for i in 0..5 {
-      let key = format!("prefix/file{}", i);
+      let key = BlobKey::new(format!("prefix/file{}", i));
       let data = Bytes::from(format!("data{}", i));
       let stream = Box::pin(stream::once(async move { Ok(data) }));
       storage
@@ -375,5 +387,60 @@ mod tests {
 
     let empty = storage.list(Some("other/")).await.unwrap();
     assert_eq!(empty.len(), 0);
+  }
+
+  #[tokio::test]
+  async fn test_overwrite_false() {
+    let storage = BlobStorageMemory::new();
+    let key = BlobKey::new("test-key");
+    let data1 = Bytes::from("first");
+    let data2 = Bytes::from("second");
+
+    // First upload should succeed
+    let stream1 = Box::pin(stream::once(async move { Ok(data1) }));
+    storage
+      .put_stream(&key, stream1, UploadOptions {
+        overwrite: false,
+        ..Default::default()
+      })
+      .await
+      .unwrap();
+
+    // Second upload with overwrite=false should fail
+    let stream2 = Box::pin(stream::once(async move { Ok(data2) }));
+    let result = storage
+      .put_stream(&key, stream2, UploadOptions {
+        overwrite: false,
+        ..Default::default()
+      })
+      .await;
+
+    assert!(matches!(result, Err(BlobStorageError::AlreadyExists(_))));
+  }
+
+  #[tokio::test]
+  async fn test_presigned_url_duration_validation() {
+    let storage = BlobStorageMemory::new();
+    let key = BlobKey::new("test-key");
+    let data = Bytes::from("test");
+
+    // Upload a blob first
+    let stream = Box::pin(stream::once(async move { Ok(data) }));
+    storage
+      .put_stream(&key, stream, UploadOptions::default())
+      .await
+      .unwrap();
+
+    // Valid duration should succeed
+    let result = storage
+      .get_presigned_url(&key, std::time::Duration::from_secs(3600))
+      .await;
+    assert!(result.is_ok());
+
+    // Duration exceeding u32::MAX should fail
+    let result = storage
+      .get_presigned_url(&key, std::time::Duration::from_secs(u64::MAX))
+      .await;
+    assert!(matches!(result, Err(BlobStorageError::InvalidInput(_))));
   }
 }
