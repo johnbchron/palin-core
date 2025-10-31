@@ -2370,7 +2370,7 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "storage-core",
- "storage-s3",
+ "storage-impl-s3",
 ]
 
 [[package]]
@@ -2388,7 +2388,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "storage-s3"
+name = "storage-impl-s3"
 version = "0.1.0"
 dependencies = [
  "async-trait",

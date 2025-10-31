@@ -7,7 +7,7 @@ pub use storage_core::{
   BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, Bytes,
   ResponseStream, UploadOptions,
 };
-use storage_s3::BlobStorageS3;
+use storage_impl_s3::BlobStorageS3;
 
 /// Frontend for a cloud storage interface.
 pub struct BlobStorage {
