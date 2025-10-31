@@ -2388,6 +2388,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "storage-impl-memory"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "bytes",
+ "chrono",
+ "futures",
+ "md5",
+ "miette",
+ "storage-core",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "storage-impl-s3"
 version = "0.1.0"
 dependencies = [

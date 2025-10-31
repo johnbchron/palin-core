@@ -1,0 +1,26 @@
+[package]
+name = "storage-impl-memory"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+storage-core = { path = "../storage-core" }
+
+async-trait.workspace = true
+bytes.workspace = true
+chrono.workspace = true
+futures.workspace = true
+miette.workspace = true
+tokio = { workspace = true, features = [ "sync" ] }
+tracing.workspace = true
+
+# computing ETags
+md5 = { version = "0.8" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = [ "rt-multi-thread" ] }
+
+[lints]
+workspace = true
