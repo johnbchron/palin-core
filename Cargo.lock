@@ -2370,6 +2370,7 @@ name = "storage"
 version = "0.1.0"
 dependencies = [
  "storage-core",
+ "storage-impl-memory",
  "storage-impl-s3",
 ]
 

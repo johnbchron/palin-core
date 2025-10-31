@@ -7,6 +7,7 @@ pub use storage_core::{
   BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, Bytes,
   ResponseStream, UploadOptions,
 };
+use storage_impl_memory::BlobStorageMemory;
 use storage_impl_s3::BlobStorageS3;
 
 /// Frontend for a cloud storage interface.
@@ -32,6 +33,13 @@ impl BlobStorage {
         secret_access_key,
       )?),
     })
+  }
+
+  /// Creates a new [`BlobStorage`] from an in-memory store.
+  pub fn new_memory() -> Self {
+    BlobStorage {
+      inner: Arc::new(BlobStorageMemory::new()),
+    }
   }
 }
 
