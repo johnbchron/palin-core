@@ -4,7 +4,7 @@ use std::marker::PhantomData;
 
 use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
 use miette::{Context, IntoDiagnostic, Report};
-use model::{IndexValue, Model, RecordId};
+use model::{IndexDefinition, IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
 use tracing::{debug, error, instrument, warn};
 
@@ -27,6 +27,10 @@ impl<M: Model> PostgresDatabase<M> {
         .context("failed to connect to database")?,
       _phantom: PhantomData,
     })
+  }
+
+  fn calculate_index_table_name(index_def: &IndexDefinition<M>) -> String {
+    format!("{}__idx_{}", M::TABLE_NAME, index_def.name)
   }
 
   /// Initialize the database schema for this model.
@@ -92,7 +96,7 @@ impl<M: Model> PostgresDatabase<M> {
 
     for def in indices.definitions {
       let table_name = M::TABLE_NAME;
-      let index_table = format!("{}__idx_{}", table_name, def.name);
+      let index_table = Self::calculate_index_table_name(def);
 
       // Determine constraint based on uniqueness
       let unique_constraint =
@@ -345,7 +349,7 @@ impl<M: Model> PostgresDatabase<M> {
     }
 
     let table_name = M::TABLE_NAME;
-    let index_table = format!("{}__idx_{}", table_name, index_def.name);
+    let index_table = Self::calculate_index_table_name(index_def);
 
     let query = format!(
       "SELECT m.data FROM {} m 
@@ -408,7 +412,7 @@ impl<M: Model> PostgresDatabase<M> {
       .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
     let table_name = M::TABLE_NAME;
-    let index_table = format!("{}__idx_{}", table_name, index_def.name);
+    let index_table = Self::calculate_index_table_name(index_def);
 
     let query = format!(
       "SELECT m.data FROM {} m 
@@ -535,11 +539,10 @@ impl<M: Model> PostgresDatabase<M> {
     model: &M,
   ) -> DatabaseResult<()> {
     let id = model.id().to_string();
-    let table_name = M::TABLE_NAME;
     let indices = M::indices();
 
     for def in indices.definitions {
-      let index_table = format!("{}__idx_{}", table_name, def.name);
+      let index_table = Self::calculate_index_table_name(def);
       let values = def.extract(model);
 
       // For composite indices, concatenate values with a delimiter
@@ -579,11 +582,10 @@ impl<M: Model> PostgresDatabase<M> {
     tx: &mut sqlx::Transaction<'_, Postgres>,
     id: RecordId<M>,
   ) -> DatabaseResult<()> {
-    let table_name = M::TABLE_NAME;
     let indices = M::indices();
 
     for def in indices.definitions {
-      let index_table = format!("{}__idx_{}", table_name, def.name);
+      let index_table = Self::calculate_index_table_name(def);
       let query = format!("DELETE FROM {} WHERE record_id = $1", index_table);
 
       sqlx::query(&query)
