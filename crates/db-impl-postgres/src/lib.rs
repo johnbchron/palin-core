@@ -1,10 +1,13 @@
 //! Postgres storage implementation for models.
 
+mod db_impl;
+mod indices;
+
 use std::marker::PhantomData;
 
-use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
-use miette::{Context, IntoDiagnostic, Report};
-use model::{IndexDefinition, IndexValue, Model, RecordId};
+use db_core::{DatabaseError, DatabaseResult};
+use miette::{Context, IntoDiagnostic};
+use model::{IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
 use tracing::{debug, instrument, warn};
 
@@ -13,6 +16,31 @@ use tracing::{debug, instrument, warn};
 pub struct PostgresDatabase<M: Model> {
   pool:     PgPool,
   _phantom: PhantomData<M>,
+}
+
+macro_rules! with_transaction {
+  ($self:expr, $tx:ident, $body:block) => {{
+    let mut $tx = $self
+      .pool
+      .begin()
+      .await
+      .into_diagnostic()
+      .map_err(DatabaseError::Database)?;
+
+    let result: DatabaseResult<_> = async { $body }.await;
+
+    match result {
+      Ok(value) => {
+        $tx
+          .commit()
+          .await
+          .into_diagnostic()
+          .map_err(DatabaseError::Database)?;
+        Ok(value)
+      }
+      Err(e) => Err(e),
+    }
+  }};
 }
 
 impl<M: Model> PostgresDatabase<M> {
@@ -33,18 +61,22 @@ impl<M: Model> PostgresDatabase<M> {
   /// Creates the main table and all index tables.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
   async fn initialize_schema(&self) -> DatabaseResult<()> {
-    debug!("Initializing database schema...");
+    with_transaction!(self, tx, {
+      debug!("Initializing database schema...");
 
-    self.create_main_table().await?;
-    self.create_index_tables().await?;
+      Self::create_main_table(&mut tx).await?;
+      Self::create_index_tables(&mut tx).await?;
 
-    debug!("Schema initialization complete");
-    Ok(())
+      debug!("Schema initialization complete");
+      Ok(())
+    })
   }
 
   /// Create the main data table.
-  #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  async fn create_main_table(&self) -> DatabaseResult<()> {
+  #[instrument(skip(tx), fields(model = M::TABLE_NAME))]
+  async fn create_main_table(
+    tx: &mut sqlx::Transaction<'_, Postgres>,
+  ) -> DatabaseResult<()> {
     debug!("Creating main table: {}", M::TABLE_NAME);
 
     let query = format!(
@@ -58,7 +90,7 @@ impl<M: Model> PostgresDatabase<M> {
     );
 
     sqlx::query(&query)
-      .execute(&self.pool)
+      .execute(&mut **tx)
       .await
       .into_diagnostic()
       .context("failed to create main table")
@@ -71,7 +103,7 @@ impl<M: Model> PostgresDatabase<M> {
       table_name = M::TABLE_NAME
     );
     sqlx::query(&index_query)
-      .execute(&self.pool)
+      .execute(&mut **tx)
       .await
       .into_diagnostic()
       .context("failed to create updated_at index")
@@ -81,165 +113,81 @@ impl<M: Model> PostgresDatabase<M> {
     Ok(())
   }
 
-  /// Create index tables for all indices defined in the model.
-  #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  async fn create_index_tables(&self) -> DatabaseResult<()> {
-    let indices = M::indices();
-    let index_count = indices.definitions.len();
-
-    debug!("Creating {} index tables", index_count);
-
-    for def in indices.definitions {
-      let index_table = Self::calculate_index_table_name(def);
-      let query = format!(
-        "CREATE TABLE IF NOT EXISTS {index_table} (
-            index_key TEXT NOT NULL,
-            record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE \
-         CASCADE,
-            {unique_constraint}
-        )",
-        table_name = M::TABLE_NAME,
-        unique_constraint = if def.unique { "UNIQUE (index_key)" } else { "" },
-      );
-
-      sqlx::query(&query)
-        .execute(&self.pool)
-        .await
-        .into_diagnostic()
-        .with_context(|| {
-          format!("Failed to create index table: {}", index_table)
-        })
-        .map_err(DatabaseError::Other)?;
-
-      // Create index on index_key for efficient lookups
-      let btree_index = format!(
-        "CREATE INDEX IF NOT EXISTS idx_{index_table}_key ON \
-         {index_table}(index_key)"
-      );
-      sqlx::query(&btree_index)
-        .execute(&self.pool)
-        .await
-        .into_diagnostic()
-        .with_context(|| {
-          format!("Failed to create btree index on: {}", index_table)
-        })
-        .map_err(DatabaseError::Other)?;
-
-      // For non-unique indices, also index by record_id for efficient deletion
-      if !def.unique {
-        let record_id_index = format!(
-          "CREATE INDEX IF NOT EXISTS idx_{index_table}_record ON \
-           {index_table}(record_id)"
-        );
-        sqlx::query(&record_id_index)
-          .execute(&self.pool)
-          .await
-          .into_diagnostic()
-          .with_context(|| {
-            format!("Failed to create record_id index on: {}", index_table)
-          })
-          .map_err(DatabaseError::Other)?;
-      }
-
-      debug!(index_name = def.name, "Index table created");
-    }
-
-    debug!("All index tables created successfully");
-    Ok(())
-  }
-
   /// Insert a new model into the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
   async fn insert(&self, model: &M) -> DatabaseResult<()> {
-    debug!("Inserting model");
+    with_transaction!(self, tx, {
+      debug!("Inserting model");
 
-    let mut tx = self
-      .pool
-      .begin()
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?;
+      let id = model.id().to_string();
+      let data = serde_json::to_value(model)
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
 
-    let id = model.id().to_string();
-    let data = serde_json::to_value(model)
-      .into_diagnostic()
-      .map_err(DatabaseError::Serialization)?;
+      // Insert into main table
+      let table_name = M::TABLE_NAME;
+      let query =
+        format!("INSERT INTO {} (id, data) VALUES ($1, $2)", table_name);
 
-    // Insert into main table
-    let table_name = M::TABLE_NAME;
-    let query =
-      format!("INSERT INTO {} (id, data) VALUES ($1, $2)", table_name);
+      sqlx::query(&query)
+        .bind(&id)
+        .bind(&data)
+        .execute(&mut *tx)
+        .await
+        .into_diagnostic()
+        .with_context(|| {
+          format!("failed to insert into main table: {table_name}")
+        })
+        .map_err(DatabaseError::Database)?;
 
-    sqlx::query(&query)
-      .bind(&id)
-      .bind(&data)
-      .execute(&mut *tx)
-      .await
-      .into_diagnostic()
-      .with_context(|| {
-        format!("failed to insert into main table: {table_name}")
-      })
-      .map_err(DatabaseError::Database)?;
+      self.insert_indices(&mut tx, model).await?;
 
-    self.insert_indices(&mut tx, model).await?;
+      debug!("Model inserted successfully");
 
-    tx.commit()
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?;
-    debug!("Model inserted successfully");
-    Ok(())
+      Ok(())
+    })
   }
 
   /// Update an existing model in the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
   async fn update(&self, model: &M) -> DatabaseResult<()> {
-    debug!("Updating model");
+    with_transaction!(self, tx, {
+      debug!("Updating model");
 
-    let mut tx = self
-      .pool
-      .begin()
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?;
+      let id = model.id();
+      let data = serde_json::to_value(model)
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
 
-    let id = model.id();
-    let data = serde_json::to_value(model)
-      .into_diagnostic()
-      .map_err(DatabaseError::Serialization)?;
+      // Update main table
+      let table_name = M::TABLE_NAME;
+      let query = format!(
+        "UPDATE {} SET data = $1, updated_at = NOW() WHERE id = $2",
+        table_name
+      );
 
-    // Update main table
-    let table_name = M::TABLE_NAME;
-    let query = format!(
-      "UPDATE {} SET data = $1, updated_at = NOW() WHERE id = $2",
-      table_name
-    );
+      let result = sqlx::query(&query)
+        .bind(&data)
+        .bind(id.to_string())
+        .execute(&mut *tx)
+        .await
+        .into_diagnostic()
+        .map_err(DatabaseError::Database)?;
 
-    let result = sqlx::query(&query)
-      .bind(&data)
-      .bind(id.to_string())
-      .execute(&mut *tx)
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?;
+      if result.rows_affected() == 0 {
+        warn!("Update failed: record not found");
+        return Err(DatabaseError::NotFound(id.to_string()));
+      }
 
-    if result.rows_affected() == 0 {
-      warn!("Update failed: record not found");
-      return Err(DatabaseError::NotFound(id.to_string()));
-    }
+      // Delete old index entries
+      self.delete_indices(&mut tx, id).await?;
 
-    // Delete old index entries
-    self.delete_indices(&mut tx, id).await?;
+      // Insert new index entries
+      self.insert_indices(&mut tx, model).await?;
 
-    // Insert new index entries
-    self.insert_indices(&mut tx, model).await?;
-
-    tx.commit()
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?;
-    debug!("Model updated successfully");
-    Ok(())
+      debug!("Model updated successfully");
+      Ok(())
+    })
   }
 
   /// Delete a model from the database by ID.
@@ -471,89 +419,6 @@ impl<M: Model> PostgresDatabase<M> {
     Ok(count)
   }
 
-  /// Insert index entries for a model.
-  #[instrument(skip(self, tx, model), fields(id = %model.id()))]
-  async fn insert_indices(
-    &self,
-    tx: &mut sqlx::Transaction<'_, Postgres>,
-    model: &M,
-  ) -> DatabaseResult<()> {
-    let id = model.id().to_string();
-    let indices = M::indices();
-
-    for def in indices.definitions {
-      let index_table = Self::calculate_index_table_name(def);
-      let values = def.extract(model);
-
-      // For composite indices, concatenate values with a delimiter
-      let index_key = Self::format_index_key(&values);
-
-      let query = format!(
-        "INSERT INTO {} (index_key, record_id) VALUES ($1, $2)",
-        index_table
-      );
-
-      match sqlx::query(&query)
-        .bind(&index_key)
-        .bind(&id)
-        .execute(&mut **tx)
-        .await
-      {
-        Ok(_) => {}
-        Err(e) if Self::is_unique_violation(&e) => {
-          return Err(DatabaseError::UniqueViolation {
-            index: def.name.to_string(),
-            value: index_key,
-          });
-        }
-        Err(e) => {
-          return Err(DatabaseError::Database(Report::from_err(e)));
-        }
-      }
-    }
-
-    Ok(())
-  }
-
-  /// Delete all index entries for a record.
-  #[instrument(skip(self, tx), fields(id = %id))]
-  async fn delete_indices(
-    &self,
-    tx: &mut sqlx::Transaction<'_, Postgres>,
-    id: RecordId<M>,
-  ) -> DatabaseResult<()> {
-    let indices = M::indices();
-
-    for def in indices.definitions {
-      let index_table = Self::calculate_index_table_name(def);
-      let query = format!("DELETE FROM {} WHERE record_id = $1", index_table);
-
-      sqlx::query(&query)
-        .bind(id.to_string())
-        .execute(&mut **tx)
-        .await
-        .into_diagnostic()
-        .map_err(DatabaseError::Database)?;
-    }
-
-    Ok(())
-  }
-
-  /// Calculate table name for a given index.
-  fn calculate_index_table_name(index_def: &IndexDefinition<M>) -> String {
-    format!("{}__idx_{}", M::TABLE_NAME, index_def.name)
-  }
-
-  /// Format index values into a single key string.
-  /// For composite indices, values are separated by a null byte.
-  fn format_index_key(values: &[IndexValue]) -> String {
-    values
-      .iter()
-      .map(|v| v.to_string())
-      .collect::<Vec<_>>()
-      .join("\0")
-  }
-
   /// Check if an error is a unique constraint violation.
   fn is_unique_violation(error: &sqlx::Error) -> bool {
     if let sqlx::Error::Database(db_err) = error {
@@ -563,60 +428,5 @@ impl<M: Model> PostgresDatabase<M> {
       }
     }
     false
-  }
-}
-
-#[async_trait::async_trait]
-impl<M: Model> DatabaseLike<M> for PostgresDatabase<M> {
-  async fn initialize_schema(&self) -> DatabaseResult<()> {
-    self.initialize_schema().await
-  }
-
-  async fn insert(&self, model: &M) -> DatabaseResult<()> {
-    self.insert(model).await
-  }
-
-  async fn update(&self, model: &M) -> DatabaseResult<()> {
-    self.update(model).await
-  }
-
-  async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
-    self.delete(id).await
-  }
-
-  async fn delete_and_return(&self, id: RecordId<M>) -> DatabaseResult<M> {
-    let model = self.get_or_error(id).await?;
-    self.delete(id).await?;
-    Ok(model)
-  }
-
-  async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
-    self.get(id).await
-  }
-
-  async fn find_by_unique_index(
-    &self,
-    selector: M::IndexSelector,
-    key: &IndexValue,
-  ) -> DatabaseResult<Option<M>> {
-    self.find_by_unique_index(selector, key).await
-  }
-
-  async fn find_by_index(
-    &self,
-    selector: M::IndexSelector,
-    key: &IndexValue,
-  ) -> DatabaseResult<Vec<M>> {
-    self.find_by_index(selector, key).await
-  }
-
-  async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
-    self.list(limit, offset).await
-  }
-
-  async fn count(&self) -> DatabaseResult<i64> { self.count().await }
-
-  async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
-    Ok(self.get(id).await?.is_some())
   }
 }
