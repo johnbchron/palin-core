@@ -36,7 +36,7 @@ impl<M: Model> PostgresDatabase<M> {
   /// Initialize the database schema for this model.
   /// Creates the main table and all index tables.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  pub async fn initialize_schema(&self) -> DatabaseResult<()> {
+  async fn initialize_schema(&self) -> DatabaseResult<()> {
     debug!("Initializing database schema...");
 
     self.create_main_table().await?;
@@ -160,7 +160,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Insert a new model into the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
-  pub async fn insert(&self, model: &M) -> DatabaseResult<()> {
+  async fn insert(&self, model: &M) -> DatabaseResult<()> {
     debug!("Inserting model");
 
     let mut tx = self
@@ -209,7 +209,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Update an existing model in the database.
   #[instrument(skip(self, model), fields(model = M::TABLE_NAME, id = %model.id()))]
-  pub async fn update(&self, model: &M) -> DatabaseResult<()> {
+  async fn update(&self, model: &M) -> DatabaseResult<()> {
     debug!("Updating model");
 
     let mut tx = self
@@ -260,7 +260,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Delete a model from the database by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
+  async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     debug!("Deleting model");
 
     let table_name = M::TABLE_NAME;
@@ -288,7 +288,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Get a model by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
+  async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     debug!("Getting model by ID");
 
     let table_name = M::TABLE_NAME;
@@ -332,7 +332,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Find a model by a unique index.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, selector = %selector, key = %key))]
-  pub async fn find_by_unique_index(
+  async fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
@@ -399,7 +399,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Find all models matching a non-unique index.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, selector = %selector, key = %key))]
-  pub async fn find_by_index(
+  async fn find_by_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
@@ -451,7 +451,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// List all models, ordered by updated_at descending.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, limit = limit, offset = offset))]
-  pub async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
+  async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     debug!("Listing models");
 
     let table_name = M::TABLE_NAME;
@@ -490,7 +490,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Count total number of records.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  pub async fn count(&self) -> DatabaseResult<i64> {
+  async fn count(&self) -> DatabaseResult<i64> {
     debug!("Counting models");
 
     let table_name = M::TABLE_NAME;
@@ -513,7 +513,7 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Check if a record exists by ID.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
+  async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     debug!("Checking if model exists");
 
     let table_name = M::TABLE_NAME;
