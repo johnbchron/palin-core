@@ -321,15 +321,6 @@ impl<M: Model> PostgresDatabase<M> {
     }
   }
 
-  /// Get a model by ID, returning an error if not found.
-  #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  pub async fn get_or_error(&self, id: RecordId<M>) -> DatabaseResult<M> {
-    self
-      .get(id)
-      .await?
-      .ok_or_else(|| DatabaseError::NotFound(id.to_string()))
-  }
-
   /// Find a model by a unique index.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, selector = %selector, key = %key))]
   async fn find_by_unique_index(
@@ -382,19 +373,6 @@ impl<M: Model> PostgresDatabase<M> {
         Ok(None)
       }
     }
-  }
-
-  /// Find a model by a unique index, returning an error if not found.
-  #[instrument(skip(self), fields(model = M::TABLE_NAME, selector = %selector, key = %key))]
-  pub async fn find_by_unique_index_or_error(
-    &self,
-    selector: M::IndexSelector,
-    key: &IndexValue,
-  ) -> DatabaseResult<M> {
-    self
-      .find_by_unique_index(selector, key)
-      .await?
-      .ok_or_else(|| DatabaseError::NotFound(format!("{}={}", selector, key)))
   }
 
   /// Find all models matching a non-unique index.
@@ -509,26 +487,6 @@ impl<M: Model> PostgresDatabase<M> {
 
     debug!(count = count, "Model count retrieved");
     Ok(count)
-  }
-
-  /// Check if a record exists by ID.
-  #[instrument(skip(self), fields(model = M::TABLE_NAME, id = %id))]
-  async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
-    debug!("Checking if model exists");
-
-    let table_name = M::TABLE_NAME;
-    let query = format!("SELECT 1 FROM {} WHERE id = $1", table_name);
-
-    let exists = sqlx::query(&query)
-      .bind(id.to_string())
-      .fetch_optional(&self.pool)
-      .await
-      .into_diagnostic()
-      .map_err(DatabaseError::Database)?
-      .is_some();
-
-    debug!(exists = exists, "Existence check complete");
-    Ok(exists)
   }
 
   /// Insert index entries for a model.
@@ -672,6 +630,6 @@ impl<M: Model> DatabaseLike<M> for PostgresDatabase<M> {
   async fn count(&self) -> DatabaseResult<i64> { self.count().await }
 
   async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
-    self.exists(id).await
+    Ok(self.get(id).await?.is_some())
   }
 }
