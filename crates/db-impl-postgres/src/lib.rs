@@ -6,7 +6,7 @@ use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
 use miette::{Context, IntoDiagnostic, Report};
 use model::{IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
-use tracing::{debug, error, info, instrument, trace, warn};
+use tracing::{debug, error, instrument, warn};
 
 /// Postgres-backed storage for models implementing the [`Model`] trait.
 #[derive(Clone)]
@@ -33,12 +33,12 @@ impl<M: Model> PostgresDatabase<M> {
   /// Creates the main table and all index tables.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
   pub async fn initialize_schema(&self) -> DatabaseResult<()> {
-    info!("Initializing database schema");
+    debug!("Initializing database schema...");
 
     self.create_main_table().await?;
     self.create_index_tables().await?;
 
-    info!("Schema initialization complete");
+    debug!("Schema initialization complete");
     Ok(())
   }
 
@@ -94,24 +94,18 @@ impl<M: Model> PostgresDatabase<M> {
       let table_name = M::TABLE_NAME;
       let index_table = format!("{}__idx_{}", table_name, def.name);
 
-      trace!(
-        index_name = def.name,
-        unique = def.unique,
-        "Creating index table"
-      );
-
       // Determine constraint based on uniqueness
       let unique_constraint =
         if def.unique { "UNIQUE (index_key)" } else { "" };
 
       let query = format!(
         r#"
-                CREATE TABLE IF NOT EXISTS {index_table} (
-                    index_key TEXT NOT NULL,
-                    record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE CASCADE,
-                    {unique_constraint}
-                )
-                "#
+        CREATE TABLE IF NOT EXISTS {index_table} (
+            index_key TEXT NOT NULL,
+            record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE CASCADE,
+            {unique_constraint}
+        )
+      "#
       );
 
       sqlx::query(&query)
@@ -156,7 +150,7 @@ impl<M: Model> PostgresDatabase<M> {
       debug!(index_name = def.name, "Index table created");
     }
 
-    info!("All index tables created successfully");
+    debug!("All index tables created successfully");
     Ok(())
   }
 
@@ -188,7 +182,7 @@ impl<M: Model> PostgresDatabase<M> {
       .execute(&mut *tx)
       .await
     {
-      Ok(_) => trace!("Inserted into main table"),
+      Ok(_) => (),
       Err(e) => {
         error!(error = %e, "Failed to insert into main table");
         return Err(DatabaseError::Database(Report::from_err(e)));
@@ -205,7 +199,7 @@ impl<M: Model> PostgresDatabase<M> {
       .await
       .into_diagnostic()
       .map_err(DatabaseError::Database)?;
-    info!("Model inserted successfully");
+    debug!("Model inserted successfully");
     Ok(())
   }
 
@@ -246,8 +240,6 @@ impl<M: Model> PostgresDatabase<M> {
       return Err(DatabaseError::NotFound(id.to_string()));
     }
 
-    trace!(rows_affected = result.rows_affected(), "Updated main table");
-
     // Delete old index entries
     self.delete_indices(&mut tx, id).await?;
 
@@ -258,7 +250,7 @@ impl<M: Model> PostgresDatabase<M> {
       .await
       .into_diagnostic()
       .map_err(DatabaseError::Database)?;
-    info!("Model updated successfully");
+    debug!("Model updated successfully");
     Ok(())
   }
 
@@ -283,7 +275,7 @@ impl<M: Model> PostgresDatabase<M> {
     }
 
     // Index entries are automatically deleted via CASCADE
-    info!(
+    debug!(
       rows_affected = result.rows_affected(),
       "Model deleted successfully"
     );
@@ -542,8 +534,6 @@ impl<M: Model> PostgresDatabase<M> {
     tx: &mut sqlx::Transaction<'_, Postgres>,
     model: &M,
   ) -> DatabaseResult<()> {
-    trace!("Inserting index entries");
-
     let id = model.id().to_string();
     let table_name = M::TABLE_NAME;
     let indices = M::indices();
@@ -554,12 +544,6 @@ impl<M: Model> PostgresDatabase<M> {
 
       // For composite indices, concatenate values with a delimiter
       let index_key = Self::format_index_key(&values);
-
-      trace!(
-          index_name = def.name,
-          index_key = %index_key,
-          "Inserting index entry"
-      );
 
       let query = format!(
         "INSERT INTO {} (index_key, record_id) VALUES ($1, $2)",
@@ -585,7 +569,6 @@ impl<M: Model> PostgresDatabase<M> {
       }
     }
 
-    trace!("All index entries inserted");
     Ok(())
   }
 
@@ -596,8 +579,6 @@ impl<M: Model> PostgresDatabase<M> {
     tx: &mut sqlx::Transaction<'_, Postgres>,
     id: RecordId<M>,
   ) -> DatabaseResult<()> {
-    trace!("Deleting index entries");
-
     let table_name = M::TABLE_NAME;
     let indices = M::indices();
 
@@ -611,8 +592,6 @@ impl<M: Model> PostgresDatabase<M> {
         .await
         .into_diagnostic()
         .map_err(DatabaseError::Database)?;
-
-      trace!(index_name = def.name, "Index entries deleted");
     }
 
     Ok(())
