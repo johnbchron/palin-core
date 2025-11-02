@@ -6,7 +6,7 @@ use db_core::{DatabaseError, DatabaseLike, DatabaseResult};
 use miette::{Context, IntoDiagnostic, Report};
 use model::{IndexDefinition, IndexValue, Model, RecordId};
 use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
-use tracing::{debug, error, instrument, warn};
+use tracing::{debug, instrument, warn};
 
 /// Postgres-backed storage for models implementing the [`Model`] trait.
 #[derive(Clone)]
@@ -29,10 +29,6 @@ impl<M: Model> PostgresDatabase<M> {
     })
   }
 
-  fn calculate_index_table_name(index_def: &IndexDefinition<M>) -> String {
-    format!("{}__idx_{}", M::TABLE_NAME, index_def.name)
-  }
-
   /// Initialize the database schema for this model.
   /// Creates the main table and all index tables.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
@@ -49,37 +45,36 @@ impl<M: Model> PostgresDatabase<M> {
   /// Create the main data table.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
   async fn create_main_table(&self) -> DatabaseResult<()> {
-    let table_name = M::TABLE_NAME;
-    debug!("Creating main table: {}", table_name);
+    debug!("Creating main table: {}", M::TABLE_NAME);
 
     let query = format!(
-      r#"
-            CREATE TABLE IF NOT EXISTS {table_name} (
-                id TEXT PRIMARY KEY,
-                data JSONB NOT NULL,
-                created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-            )
-            "#
+      "CREATE TABLE IF NOT EXISTS {table_name} (
+          id TEXT PRIMARY KEY,
+          data JSONB NOT NULL,
+          created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+          updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      )",
+      table_name = M::TABLE_NAME
     );
 
     sqlx::query(&query)
       .execute(&self.pool)
       .await
       .into_diagnostic()
-      .context("Failed to create main table")
+      .context("failed to create main table")
       .map_err(DatabaseError::Other)?;
 
     // Create index on updated_at for efficient queries
     let index_query = format!(
       "CREATE INDEX IF NOT EXISTS idx_{table_name}_updated_at ON \
-       {table_name}(updated_at)"
+       {table_name}(updated_at)",
+      table_name = M::TABLE_NAME
     );
     sqlx::query(&index_query)
       .execute(&self.pool)
       .await
       .into_diagnostic()
-      .context("Failed to create updated_at index")
+      .context("failed to create updated_at index")
       .map_err(DatabaseError::Other)?;
 
     debug!("Main table created successfully");
@@ -95,21 +90,16 @@ impl<M: Model> PostgresDatabase<M> {
     debug!("Creating {} index tables", index_count);
 
     for def in indices.definitions {
-      let table_name = M::TABLE_NAME;
       let index_table = Self::calculate_index_table_name(def);
-
-      // Determine constraint based on uniqueness
-      let unique_constraint =
-        if def.unique { "UNIQUE (index_key)" } else { "" };
-
       let query = format!(
-        r#"
-        CREATE TABLE IF NOT EXISTS {index_table} (
+        "CREATE TABLE IF NOT EXISTS {index_table} (
             index_key TEXT NOT NULL,
-            record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE CASCADE,
+            record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE \
+         CASCADE,
             {unique_constraint}
-        )
-      "#
+        )",
+        table_name = M::TABLE_NAME,
+        unique_constraint = if def.unique { "UNIQUE (index_key)" } else { "" },
       );
 
       sqlx::query(&query)
@@ -180,24 +170,18 @@ impl<M: Model> PostgresDatabase<M> {
     let query =
       format!("INSERT INTO {} (id, data) VALUES ($1, $2)", table_name);
 
-    match sqlx::query(&query)
+    sqlx::query(&query)
       .bind(&id)
       .bind(&data)
       .execute(&mut *tx)
       .await
-    {
-      Ok(_) => (),
-      Err(e) => {
-        error!(error = %e, "Failed to insert into main table");
-        return Err(DatabaseError::Database(Report::from_err(e)));
-      }
-    }
+      .into_diagnostic()
+      .with_context(|| {
+        format!("failed to insert into main table: {table_name}")
+      })
+      .map_err(DatabaseError::Database)?;
 
-    // Insert into index tables
-    if let Err(e) = self.insert_indices(&mut tx, model).await {
-      error!(error = %e, "Failed to insert indices");
-      return Err(e);
-    }
+    self.insert_indices(&mut tx, model).await?;
 
     tx.commit()
       .await
@@ -389,15 +373,13 @@ impl<M: Model> PostgresDatabase<M> {
       .get(selector)
       .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
 
-    let table_name = M::TABLE_NAME;
-    let index_table = Self::calculate_index_table_name(index_def);
-
     let query = format!(
-      "SELECT m.data FROM {} m 
-             INNER JOIN {} i ON m.id = i.record_id 
+      "SELECT m.data FROM {table_name} m 
+             INNER JOIN {index_table} i ON m.id = i.record_id 
              WHERE i.index_key = $1
              ORDER BY m.updated_at DESC",
-      table_name, index_table
+      table_name = M::TABLE_NAME,
+      index_table = Self::calculate_index_table_name(index_def)
     );
 
     let rows: Vec<PgRow> = sqlx::query(&query)
@@ -555,6 +537,11 @@ impl<M: Model> PostgresDatabase<M> {
     }
 
     Ok(())
+  }
+
+  /// Calculate table name for a given index.
+  fn calculate_index_table_name(index_def: &IndexDefinition<M>) -> String {
+    format!("{}__idx_{}", M::TABLE_NAME, index_def.name)
   }
 
   /// Format index values into a single key string.
