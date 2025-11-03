@@ -1,0 +1,20 @@
+[package]
+name = "db-test"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+db = { path = "../db" }
+model = { path = "../model" }
+
+futures.workspace = true
+miette = { workspace = true, features = [ "fancy" ] }
+serde.workspace = true
+
+# this is not from the workspace so as not to pollute the shared feature set
+tokio = { version = "1", features = [ "macros", "rt-multi-thread" ] }
+
+[lints]
+workspace = true

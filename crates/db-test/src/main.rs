@@ -1,0 +1,75 @@
+//! Tests the `db` interface.
+
+use db::Database;
+use miette::{Context, IntoDiagnostic, Result};
+use model::{IndexValue, Model, RecordId};
+use serde::{Deserialize, Serialize};
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Model)]
+#[model(table = "users")]
+#[model(composite_index(
+  name = "name_age",
+  extract = |m| vec![
+    IndexValue::new(m.name.clone()),
+    IndexValue::new(format!("{}", m.age))
+  ])
+)]
+struct User {
+  #[model(id)]
+  id: RecordId<User>,
+
+  #[model(unique)]
+  email: String,
+
+  #[model(index)]
+  name: String,
+
+  age: u32,
+}
+
+#[tokio::main]
+async fn main() -> Result<()> {
+  let db = Database::<User>::new_postgres(
+    &std::env::var("POSTGRES_URL")
+      .into_diagnostic()
+      .context("could not read `POSTGRES_URL` var")?,
+  )
+  .await
+  .context("failed to connect to database")?;
+
+  db.initialize_schema().await?;
+
+  let user = User {
+    id:    RecordId::new(),
+    email: "jpicard@federation.gov".to_owned(),
+    name:  "Jean-Luc Picard".to_owned(),
+    age:   54,
+  };
+
+  db.insert(&user).await?;
+
+  let retrieved_user = db.get(user.id).await?.unwrap();
+  assert_eq!(user, retrieved_user);
+
+  let retrieved_user = db
+    .find_by_unique_index(
+      UserIndexSelector::Email,
+      &IndexValue::new(&user.email),
+    )
+    .await?
+    .unwrap();
+  assert_eq!(user, retrieved_user);
+
+  // increment age
+  let user = User {
+    age: user.age + 1,
+    ..user
+  };
+
+  db.update(&user).await?;
+
+  let retrieved_user = db.get(user.id).await?.unwrap();
+  assert_eq!(user, retrieved_user);
+
+  Ok(())
+}
