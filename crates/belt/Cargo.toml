@@ -11,5 +11,8 @@ futures.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = [ "io" ] }
 
+[dev-dependencies]
+tokio = { workspace = true, features = [ "rt-multi-thread", "io-util" ] }
+
 [lints]
 workspace = true

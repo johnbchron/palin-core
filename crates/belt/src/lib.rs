@@ -1,5 +1,8 @@
 //! Provides a streaming bytes container.
 
+#[cfg(test)]
+mod tests;
+
 use std::{
   io,
   pin::Pin,
