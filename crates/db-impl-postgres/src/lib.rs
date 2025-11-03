@@ -269,7 +269,7 @@ impl<M: Model> PostgresDatabase<M> {
 
     let table_name = M::TABLE_NAME;
     let index_table = Self::calculate_index_table_name(index_def);
-    let index_key = Self::format_index_key(std::slice::from_ref(key))?;
+    let index_key = key.to_string();
 
     let query = format!(
       "SELECT m.data FROM {table_name} m 
@@ -313,7 +313,7 @@ impl<M: Model> PostgresDatabase<M> {
     let index_def = indices
       .get(selector)
       .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
-    let index_key = Self::format_index_key(std::slice::from_ref(key))?;
+    let index_key = key.to_string();
 
     let query = format!(
       "SELECT m.data FROM {table_name} m 

@@ -16,8 +16,7 @@ struct Unit {
 #[model(composite_index(
     name = "name_age",
     extract = |m| vec![
-      IndexValue::new(m.name.clone()),
-      IndexValue::new(format!("{}", m.age))
+      IndexValue::new([m.name.clone(), m.age.to_string()])
   ]))]
 struct User {
   #[model(id)]
@@ -271,7 +270,7 @@ async fn test_find_by_unique_index() {
   let found = db
     .find_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new("alice@example.com"),
+      &IndexValue::new_single("alice@example.com"),
     )
     .unwrap();
 
@@ -285,7 +284,7 @@ async fn test_find_by_unique_index_not_found() {
   let found = db
     .find_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new("nonexistent@example.com"),
+      &IndexValue::new_single("nonexistent@example.com"),
     )
     .unwrap();
 
@@ -304,7 +303,7 @@ async fn test_find_by_index() {
   db.insert(&user3).unwrap();
 
   let found = db
-    .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
+    .find_by_index(UserIndexSelector::Name, &IndexValue::new_single("Alice"))
     .unwrap();
 
   assert_eq!(found.len(), 2);
@@ -317,7 +316,10 @@ async fn test_find_by_index_empty() {
   let db = MockDatabase::<User>::new();
 
   let found = db
-    .find_by_index(UserIndexSelector::Name, &IndexValue::new("NonExistent"))
+    .find_by_index(
+      UserIndexSelector::Name,
+      &IndexValue::new_single("NonExistent"),
+    )
     .unwrap();
 
   assert_eq!(found.len(), 0);
@@ -333,7 +335,7 @@ async fn test_find_one_by_index() {
   db.insert(&user2).unwrap();
 
   let found = db
-    .find_one_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
+    .find_one_by_index(UserIndexSelector::Name, &IndexValue::new(["Alice"]))
     .await
     .unwrap();
 
@@ -347,7 +349,10 @@ async fn test_find_one_by_index_not_found() {
   let db = MockDatabase::<User>::new();
 
   let found = db
-    .find_one_by_index(UserIndexSelector::Name, &IndexValue::new("NonExistent"))
+    .find_one_by_index(
+      UserIndexSelector::Name,
+      &IndexValue::new_single("NonExistent"),
+    )
     .await
     .unwrap();
 
@@ -393,7 +398,7 @@ async fn test_count_by_index() {
   db.insert(&user3).unwrap();
 
   let count = db
-    .count_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
+    .count_by_index(UserIndexSelector::Name, &IndexValue::new_single("Alice"))
     .await
     .unwrap();
 
@@ -405,7 +410,10 @@ async fn test_count_by_index_zero() {
   let db = MockDatabase::<User>::new();
 
   let count = db
-    .count_by_index(UserIndexSelector::Name, &IndexValue::new("NonExistent"))
+    .count_by_index(
+      UserIndexSelector::Name,
+      &IndexValue::new_single("NonExistent"),
+    )
     .await
     .unwrap();
 
@@ -443,7 +451,7 @@ async fn test_exists_by_unique_index_true() {
   let exists = db
     .exists_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new("alice@example.com"),
+      &IndexValue::new_single("alice@example.com"),
     )
     .await
     .unwrap();
@@ -458,7 +466,7 @@ async fn test_exists_by_unique_index_false() {
   let exists = db
     .exists_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new("nonexistent@example.com"),
+      &IndexValue::new_single("nonexistent@example.com"),
     )
     .await
     .unwrap();
@@ -518,7 +526,7 @@ async fn test_find_by_unique_index_or_error_success() {
   let found = db
     .find_by_unique_index_or_error(
       UserIndexSelector::Email,
-      &IndexValue::new("alice@example.com"),
+      &IndexValue::new_single("alice@example.com"),
     )
     .unwrap();
 
@@ -531,7 +539,7 @@ async fn test_find_by_unique_index_or_error_not_found() {
 
   let result = db.find_by_unique_index_or_error(
     UserIndexSelector::Email,
-    &IndexValue::new("nonexistent@example.com"),
+    &IndexValue::new_single("nonexistent@example.com"),
   );
 
   assert!(matches!(result, Err(DatabaseError::NotFound(_))));
@@ -551,13 +559,13 @@ async fn test_update_changes_index() {
 
   // Old index should not find it
   let found_old = db
-    .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
+    .find_by_index(UserIndexSelector::Name, &IndexValue::new_single("Alice"))
     .unwrap();
   assert_eq!(found_old.len(), 0);
 
   // New index should find it
   let found_new = db
-    .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alicia"))
+    .find_by_index(UserIndexSelector::Name, &IndexValue::new_single("Alicia"))
     .unwrap();
   assert_eq!(found_new.len(), 1);
 }
@@ -573,13 +581,13 @@ async fn test_delete_removes_from_indexes() {
   let found_by_email = db
     .find_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new("alice@example.com"),
+      &IndexValue::new_single("alice@example.com"),
     )
     .unwrap();
   assert_eq!(found_by_email, None);
 
   let found_by_name = db
-    .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
+    .find_by_index(UserIndexSelector::Name, &IndexValue::new_single("Alice"))
     .unwrap();
   assert_eq!(found_by_name.len(), 0);
 }

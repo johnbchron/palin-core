@@ -137,7 +137,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         ::model::IndexDefinition::new(
             #field_name_snake,
             true,
-            |m: &#struct_name| vec![model::IndexValue::from(m.#field.clone())]
+            |m: &#struct_name| vec![model::IndexValue::new([m.#field.clone()])]
         )
     });
   }
@@ -155,7 +155,7 @@ fn expand_model(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
         model::IndexDefinition::new(
             #field_name_snake,
             false,
-            |m: &#struct_name| vec![model::IndexValue::from(m.#field.clone())]
+            |m: &#struct_name| vec![model::IndexValue::new([m.#field.clone()])]
         )
     });
   }

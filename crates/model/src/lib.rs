@@ -63,23 +63,25 @@ impl<M> IndexRegistry<M> {
 
 /// An index value.
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct IndexValue(String);
+pub struct IndexValue(Vec<String>);
 
 impl fmt::Display for IndexValue {
   fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-    f.write_str(&self.0)
+    let json = serde_json::to_string(&self.0).map_err(|_| fmt::Error)?;
+    f.write_str(&json)
   }
 }
 
 impl IndexValue {
   /// Creates a new [`IndexValue`].
-  pub fn new(input: impl AsRef<str>) -> Self {
-    IndexValue(input.as_ref().to_owned())
+  pub fn new<I: IntoIterator<Item = T>, T: AsRef<str>>(input: I) -> Self {
+    IndexValue(input.into_iter().map(|i| i.as_ref().to_owned()).collect())
   }
-}
 
-impl From<String> for IndexValue {
-  fn from(value: String) -> Self { IndexValue::new(value) }
+  /// Creates a new [`IndexValue`] from a single segment.
+  pub fn new_single<T: AsRef<str>>(input: T) -> Self {
+    IndexValue(vec![input.as_ref().to_owned()])
+  }
 }
 
 /// Definition of a single index (can be simple or composite).

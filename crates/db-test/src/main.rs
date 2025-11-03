@@ -10,8 +10,7 @@ use serde::{Deserialize, Serialize};
 #[model(composite_index(
   name = "name_age",
   extract = |m| vec![
-    IndexValue::new(m.name.clone()),
-    IndexValue::new(format!("{}", m.age))
+    IndexValue::new([m.name.clone(), m.age.to_string()])
   ])
 )]
 struct User {
@@ -54,7 +53,16 @@ async fn main() -> Result<()> {
   let retrieved_user = db
     .find_by_unique_index(
       UserIndexSelector::Email,
-      &IndexValue::new(&user.email),
+      &IndexValue::new_single(&user.email),
+    )
+    .await?
+    .unwrap();
+  assert_eq!(user, retrieved_user);
+
+  let retrieved_user = db
+    .find_one_by_index(
+      UserIndexSelector::NameAge,
+      &IndexValue::new([user.name.clone(), user.age.to_string()]),
     )
     .await?
     .unwrap();

@@ -10,6 +10,7 @@ model-derive = { path = "../model-derive" }
 record-id = { path = "../record-id" }
 
 serde.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true

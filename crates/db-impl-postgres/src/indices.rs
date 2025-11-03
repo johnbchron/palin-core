@@ -1,6 +1,6 @@
 use db_core::{DatabaseError, DatabaseResult};
 use miette::{Context, IntoDiagnostic, Report};
-use model::{IndexDefinition, IndexValue, Model, RecordId};
+use model::{IndexDefinition, Model, RecordId};
 use sqlx::Postgres;
 use tracing::{debug, instrument};
 
@@ -92,28 +92,29 @@ impl<M: Model> PostgresDatabase<M> {
       let index_table = Self::calculate_index_table_name(def);
       let values = def.extract(model);
 
-      // For composite indices, concatenate values with a delimiter
-      let index_key = Self::format_index_key(&values)?;
+      for value in values {
+        let index_key = value.to_string();
 
-      let query = format!(
-        "INSERT INTO {index_table} (index_key, record_id) VALUES ($1, $2)"
-      );
+        let query = format!(
+          "INSERT INTO {index_table} (index_key, record_id) VALUES ($1, $2)"
+        );
 
-      match sqlx::query(&query)
-        .bind(&index_key)
-        .bind(&id)
-        .execute(&mut **tx)
-        .await
-      {
-        Ok(_) => {}
-        Err(e) if Self::is_unique_violation(&e) => {
-          return Err(DatabaseError::UniqueViolation {
-            index: def.name.to_string(),
-            value: index_key,
-          });
-        }
-        Err(e) => {
-          return Err(DatabaseError::Database(Report::from_err(e)));
+        match sqlx::query(&query)
+          .bind(&index_key)
+          .bind(&id)
+          .execute(&mut **tx)
+          .await
+        {
+          Ok(_) => {}
+          Err(e) if Self::is_unique_violation(&e) => {
+            return Err(DatabaseError::UniqueViolation {
+              index: def.name.to_string(),
+              value: index_key,
+            });
+          }
+          Err(e) => {
+            return Err(DatabaseError::Database(Report::from_err(e)));
+          }
         }
       }
     }
@@ -150,23 +151,5 @@ impl<M: Model> PostgresDatabase<M> {
     index_def: &IndexDefinition<M>,
   ) -> String {
     format!("{}__idx_{}", M::TABLE_NAME, index_def.name)
-  }
-
-  /// Format index values into a single key string.
-  pub(crate) fn format_index_key(
-    values: &[IndexValue],
-  ) -> Result<String, DatabaseError> {
-    // values
-    //   .iter()
-    //   .map(ToString::to_string)
-    //   .collect::<Vec<_>>()
-    //   .join("\0")
-
-    let values = values.iter().map(ToString::to_string).collect::<Vec<_>>();
-
-    serde_json::to_string(&values)
-      .into_diagnostic()
-      .context("failed to serialize index key values to JSON")
-      .map_err(DatabaseError::Serialization)
   }
 }

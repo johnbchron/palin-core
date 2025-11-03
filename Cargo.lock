@@ -1379,6 +1379,7 @@ dependencies = [
  "model-derive",
  "record-id",
  "serde",
+ "serde_json",
 ]
 
 [[package]]
