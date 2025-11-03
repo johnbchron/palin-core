@@ -3,13 +3,20 @@
     inherit (rust-workspace.workspace-base-args) src;
     inherit (rust-toolchain) craneLib;
 
+    # we're excluding crates in the `examples` dir from the graph
+    example-dir-entries = builtins.readDir ../../examples;
+    example-subdirs = pkgs.lib.filterAttrs (name: type: type == "directory") example-dir-entries;
+    example-names = builtins.attrNames example-subdirs;
+    exclude-flags = map (name: "--exclude ${name}") example-names;
+    exclude-flag-string = pkgs.lib.concatStringsSep " " exclude-flags;
+
     crate-graph = craneLib.mkCargoDerivation {
       inherit src;
       cargoArtifacts = null;
       pname = "crate-graph";
       version = "0.1";
       buildPhaseCargoCommand = ''
-        cargo depgraph --workspace-only --all-deps > crate-graph.dot
+        cargo depgraph --workspace-only --all-deps ${exclude-flag-string} > crate-graph.dot
       '';
       installPhaseCommand = ''
         mkdir $out
