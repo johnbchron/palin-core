@@ -93,7 +93,7 @@ impl<M: Model> PostgresDatabase<M> {
       let values = def.extract(model);
 
       // For composite indices, concatenate values with a delimiter
-      let index_key = Self::format_index_key(&values);
+      let index_key = Self::format_index_key(&values)?;
 
       let query = format!(
         "INSERT INTO {index_table} (index_key, record_id) VALUES ($1, $2)"
@@ -153,12 +153,20 @@ impl<M: Model> PostgresDatabase<M> {
   }
 
   /// Format index values into a single key string.
-  /// For composite indices, values are separated by a null byte.
-  pub(crate) fn format_index_key(values: &[IndexValue]) -> String {
-    values
-      .iter()
-      .map(ToString::to_string)
-      .collect::<Vec<_>>()
-      .join("\0")
+  pub(crate) fn format_index_key(
+    values: &[IndexValue],
+  ) -> Result<String, DatabaseError> {
+    // values
+    //   .iter()
+    //   .map(ToString::to_string)
+    //   .collect::<Vec<_>>()
+    //   .join("\0")
+
+    let values = values.iter().map(ToString::to_string).collect::<Vec<_>>();
+
+    serde_json::to_string(&values)
+      .into_diagnostic()
+      .context("failed to serialize index key values to JSON")
+      .map_err(DatabaseError::Serialization)
   }
 }

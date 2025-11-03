@@ -269,6 +269,7 @@ impl<M: Model> PostgresDatabase<M> {
 
     let table_name = M::TABLE_NAME;
     let index_table = Self::calculate_index_table_name(index_def);
+    let index_key = Self::format_index_key(std::slice::from_ref(key))?;
 
     let query = format!(
       "SELECT m.data FROM {table_name} m 
@@ -277,7 +278,7 @@ impl<M: Model> PostgresDatabase<M> {
     );
 
     let row: Option<PgRow> = sqlx::query(&query)
-      .bind(key.to_string())
+      .bind(index_key)
       .fetch_optional(&self.pool)
       .await
       .into_diagnostic()
@@ -312,6 +313,7 @@ impl<M: Model> PostgresDatabase<M> {
     let index_def = indices
       .get(selector)
       .ok_or_else(|| DatabaseError::IndexNotFound(selector.to_string()))?;
+    let index_key = Self::format_index_key(std::slice::from_ref(key))?;
 
     let query = format!(
       "SELECT m.data FROM {table_name} m 
@@ -323,7 +325,7 @@ impl<M: Model> PostgresDatabase<M> {
     );
 
     let rows: Vec<PgRow> = sqlx::query(&query)
-      .bind(key.to_string())
+      .bind(index_key)
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
