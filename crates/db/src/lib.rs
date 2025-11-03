@@ -28,13 +28,14 @@ impl<M> fmt::Debug for Database<M> {
 
 impl<M: Model> Database<M> {
   /// Create a new database backed by a mock store.
+  #[must_use]
   pub fn new_mock() -> Self {
     Self {
       inner: Arc::new(MockDatabase::new()),
     }
   }
 
-  /// Create a new database backed by a PostgreSQL store.
+  /// Create a new database backed by a `PostgreSQL` store.
   pub async fn new_postgres(url: &str) -> miette::Result<Self> {
     Ok(Self {
       inner: Arc::new(PostgresDatabase::new(url).await?),
@@ -126,13 +127,13 @@ impl<M: Model> Database<M> {
     self.inner.list_all().await
   }
   /// Count the total number of records in storage.
-  pub async fn count(&self) -> DatabaseResult<i64> { self.inner.count().await }
+  pub async fn count(&self) -> DatabaseResult<u64> { self.inner.count().await }
   /// Count records matching a non-unique index.
   pub async fn count_by_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> DatabaseResult<i64> {
+  ) -> DatabaseResult<u64> {
     self.inner.count_by_index(selector, key).await
   }
   /// Check if a record exists by ID.

@@ -44,7 +44,7 @@ macro_rules! with_transaction {
 }
 
 impl<M: Model> PostgresDatabase<M> {
-  /// Create a new PostgresDatabase with the given connection pool.
+  /// Create a new `PostgresDatabase` with the given connection pool.
   #[instrument(fields(model = M::TABLE_NAME))]
   pub async fn new(url: &str) -> miette::Result<Self> {
     debug!("Creating PostgresDatabase for model");
@@ -127,7 +127,7 @@ impl<M: Model> PostgresDatabase<M> {
       // Insert into main table
       let table_name = M::TABLE_NAME;
       let query =
-        format!("INSERT INTO {} (id, data) VALUES ($1, $2)", table_name);
+        format!("INSERT INTO {table_name} (id, data) VALUES ($1, $2)");
 
       sqlx::query(&query)
         .bind(&id)
@@ -162,8 +162,7 @@ impl<M: Model> PostgresDatabase<M> {
       // Update main table
       let table_name = M::TABLE_NAME;
       let query = format!(
-        "UPDATE {} SET data = $1, updated_at = NOW() WHERE id = $2",
-        table_name
+        "UPDATE {table_name} SET data = $1, updated_at = NOW() WHERE id = $2"
       );
 
       let result = sqlx::query(&query)
@@ -196,7 +195,7 @@ impl<M: Model> PostgresDatabase<M> {
     debug!("Deleting model");
 
     let table_name = M::TABLE_NAME;
-    let query = format!("DELETE FROM {} WHERE id = $1", table_name);
+    let query = format!("DELETE FROM {table_name} WHERE id = $1");
 
     let result = sqlx::query(&query)
       .bind(id.to_string())
@@ -224,7 +223,7 @@ impl<M: Model> PostgresDatabase<M> {
     debug!("Getting model by ID");
 
     let table_name = M::TABLE_NAME;
-    let query = format!("SELECT data FROM {} WHERE id = $1", table_name);
+    let query = format!("SELECT data FROM {table_name} WHERE id = $1");
 
     let row: Option<PgRow> = sqlx::query(&query)
       .bind(id.to_string())
@@ -233,23 +232,20 @@ impl<M: Model> PostgresDatabase<M> {
       .into_diagnostic()
       .map_err(DatabaseError::Database)?;
 
-    match row {
-      Some(row) => {
-        let data: serde_json::Value = row
-          .try_get("data")
-          .into_diagnostic()
-          .map_err(DatabaseError::Serialization)?;
-        let model: M = serde_json::from_value(data)
-          .into_diagnostic()
-          .map_err(DatabaseError::Serialization)?;
+    if let Some(row) = row {
+      let data: serde_json::Value = row
+        .try_get("data")
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
+      let model: M = serde_json::from_value(data)
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
 
-        debug!("Model found");
-        Ok(Some(model))
-      }
-      None => {
-        debug!("Model not found");
-        Ok(None)
-      }
+      debug!("Model found");
+      Ok(Some(model))
+    } else {
+      debug!("Model not found");
+      Ok(None)
     }
   }
 
@@ -275,10 +271,9 @@ impl<M: Model> PostgresDatabase<M> {
     let index_table = Self::calculate_index_table_name(index_def);
 
     let query = format!(
-      "SELECT m.data FROM {} m 
-             INNER JOIN {} i ON m.id = i.record_id 
-             WHERE i.index_key = $1",
-      table_name, index_table
+      "SELECT m.data FROM {table_name} m 
+             INNER JOIN {index_table} i ON m.id = i.record_id 
+             WHERE i.index_key = $1"
     );
 
     let row: Option<PgRow> = sqlx::query(&query)
@@ -288,22 +283,19 @@ impl<M: Model> PostgresDatabase<M> {
       .into_diagnostic()
       .map_err(DatabaseError::Database)?;
 
-    match row {
-      Some(row) => {
-        let data: serde_json::Value = row
-          .try_get("data")
-          .into_diagnostic()
-          .map_err(DatabaseError::Serialization)?;
-        let model: M = serde_json::from_value(data)
-          .into_diagnostic()
-          .map_err(DatabaseError::Serialization)?;
-        debug!("Model found by unique index");
-        Ok(Some(model))
-      }
-      None => {
-        debug!("Model not found by unique index");
-        Ok(None)
-      }
+    if let Some(row) = row {
+      let data: serde_json::Value = row
+        .try_get("data")
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
+      let model: M = serde_json::from_value(data)
+        .into_diagnostic()
+        .map_err(DatabaseError::Serialization)?;
+      debug!("Model found by unique index");
+      Ok(Some(model))
+    } else {
+      debug!("Model not found by unique index");
+      Ok(None)
     }
   }
 
@@ -357,20 +349,20 @@ impl<M: Model> PostgresDatabase<M> {
     Ok(results)
   }
 
-  /// List all models, ordered by updated_at descending.
+  /// List all models, ordered by `updated_at` descending.
   #[instrument(skip(self), fields(model = M::TABLE_NAME, limit = limit, offset = offset))]
   async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     debug!("Listing models");
 
     let table_name = M::TABLE_NAME;
     let query = format!(
-      "SELECT data FROM {} ORDER BY updated_at DESC LIMIT $1 OFFSET $2",
-      table_name
+      "SELECT data FROM {table_name} ORDER BY updated_at DESC LIMIT $1 OFFSET \
+       $2"
     );
 
     let rows: Vec<PgRow> = sqlx::query(&query)
-      .bind(limit as i64)
-      .bind(offset as i64)
+      .bind(i64::from(limit))
+      .bind(i64::from(offset))
       .fetch_all(&self.pool)
       .await
       .into_diagnostic()
@@ -398,11 +390,11 @@ impl<M: Model> PostgresDatabase<M> {
 
   /// Count total number of records.
   #[instrument(skip(self), fields(model = M::TABLE_NAME))]
-  async fn count(&self) -> DatabaseResult<i64> {
+  async fn count(&self) -> DatabaseResult<u64> {
     debug!("Counting models");
 
     let table_name = M::TABLE_NAME;
-    let query = format!("SELECT COUNT(*) as count FROM {}", table_name);
+    let query = format!("SELECT COUNT(*) as count FROM {table_name}");
 
     let row: PgRow = sqlx::query(&query)
       .fetch_one(&self.pool)
@@ -414,9 +406,10 @@ impl<M: Model> PostgresDatabase<M> {
       .try_get("count")
       .into_diagnostic()
       .map_err(DatabaseError::Serialization)?;
+    let count = count.unsigned_abs();
 
     debug!(count = count, "Model count retrieved");
-    Ok(count)
+    Ok(count as u64)
   }
 
   /// Check if an error is a unique constraint violation.

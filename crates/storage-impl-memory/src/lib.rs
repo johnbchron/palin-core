@@ -22,7 +22,7 @@ struct StoredBlob {
   data:          Bytes,
   /// Content type
   content_type:  Option<String>,
-  /// ETag (generated from content hash)
+  /// `ETag` (generated from content hash)
   etag:          String,
   /// Last modified timestamp
   last_modified: String,
@@ -54,7 +54,7 @@ impl StoredBlob {
       .unwrap()
       .as_secs();
     // ISO 8601 format
-    chrono::DateTime::from_timestamp(now as i64, 0)
+    chrono::DateTime::from_timestamp(i64::try_from(now).unwrap(), 0)
       .unwrap()
       .to_rfc3339()
   }
@@ -201,7 +201,7 @@ impl BlobStorageLike for BlobStorageMemory {
     debug!(chunk_count = chunk_count, "Collected stream chunks");
 
     // Combine all chunks
-    let total_size: usize = chunks.iter().map(|c| c.len()).sum();
+    let total_size: usize = chunks.iter().map(Bytes::len).sum();
     let mut combined = Vec::with_capacity(total_size);
     for chunk in chunks {
       combined.extend_from_slice(&chunk);
@@ -380,7 +380,7 @@ impl BlobStorageLike for BlobStorageMemory {
     debug!(expiry_secs = expiry_secs, "Generating presigned URL");
 
     // Validate duration (same as S3 implementation for consistency)
-    if expiry_secs > u32::MAX as u64 {
+    if expiry_secs > u64::from(u32::MAX) {
       error!(
         expiry_secs = expiry_secs,
         max_secs = u32::MAX,
@@ -518,8 +518,8 @@ mod tests {
 
     // Add some blobs
     for i in 0..5 {
-      let key = BlobKey::new(format!("prefix/file{}", i));
-      let data = Bytes::from(format!("data{}", i));
+      let key = BlobKey::new(format!("prefix/file{i}"));
+      let data = Bytes::from(format!("data{i}"));
       let stream = Box::pin(stream::once(async move { Ok(data) }));
       storage
         .put_stream(&key, stream, UploadOptions::default())

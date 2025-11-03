@@ -286,7 +286,7 @@ impl BlobStorageLike for BlobStorageS3 {
     debug!(expiry_secs = expiry_secs, "Generating presigned URL");
 
     // Validate that expiry fits in u32 (S3 API limitation)
-    if expiry_secs > u32::MAX as u64 {
+    if expiry_secs > u64::from(u32::MAX) {
       error!(
         expiry_secs = expiry_secs,
         max_secs = u32::MAX,
@@ -301,7 +301,7 @@ impl BlobStorageLike for BlobStorageS3 {
     }
 
     // Ensure at least 1 second
-    let expiry_u32 = expiry_secs.max(1) as u32;
+    let expiry_u32 = u32::try_from(expiry_secs.max(1)).unwrap();
     if expiry_secs < 1 {
       debug!("Adjusted expiry from 0 to 1 second");
     }

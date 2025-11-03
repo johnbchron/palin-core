@@ -38,7 +38,7 @@ fn push_ascii_char(slug: &mut String, x: u8) {
     }
     _ => '-',
   };
-  slug.push(char)
+  slug.push(char);
 }
 
 #[cfg(test)]

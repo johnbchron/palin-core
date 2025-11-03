@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_lines)]
+
 //! Provides the derive macro for the [`Model`] trait.
 
 use proc_macro::TokenStream;
@@ -14,13 +16,13 @@ use syn::{
 pub fn derive_model(input: TokenStream) -> TokenStream {
   let input = parse_macro_input!(input as DeriveInput);
 
-  match expand_model(input) {
+  match expand_model(&input) {
     Ok(tokens) => tokens.into(),
     Err(err) => err.to_compile_error().into(),
   }
 }
 
-fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
+fn expand_model(input: &DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
   let struct_name = &input.ident;
 
   // Parse attributes
@@ -60,7 +62,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
 
   let table_name = table_name.ok_or_else(|| {
     syn::Error::new_spanned(
-      &input,
+      input,
       "missing #[model(table = \"...\")] attribute",
     )
   })?;
@@ -71,14 +73,14 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
       Fields::Named(fields) => &fields.named,
       _ => {
         return Err(syn::Error::new_spanned(
-          &input,
+          input,
           "Model can only be derived for structs with named fields",
         ));
       }
     },
     _ => {
       return Err(syn::Error::new_spanned(
-        &input,
+        input,
         "Model can only be derived for structs",
       ));
     }
@@ -114,7 +116,7 @@ fn expand_model(input: DeriveInput) -> syn::Result<proc_macro2::TokenStream> {
   }
 
   let id_field = id_field.ok_or_else(|| {
-    syn::Error::new_spanned(&input, "missing #[model(id)] field attribute")
+    syn::Error::new_spanned(input, "missing #[model(id)] field attribute")
   })?;
 
   // Generate IndexSelector enum

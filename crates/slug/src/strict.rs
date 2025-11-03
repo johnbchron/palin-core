@@ -27,22 +27,22 @@ pub struct Slug(Box<str>);
 
 impl Slug {
   /// Slugifies the input and creates a new slug.
+  #[must_use]
   pub fn new(input: &str) -> Self {
     Self(strict_slugify(input).into_boxed_str())
   }
   /// Creates a new slug without first slugifying the input.
-  ///
-  /// # Safety
-  /// Guarantees are broken if input is not first verified with
-  /// [`Slug::validate`] or otherwise known to be valid.
-  pub unsafe fn new_unchecked(input: &str) -> Self {
+  #[must_use]
+  pub fn new_unchecked(input: &str) -> Self {
     Self(input.to_owned().into_boxed_str())
   }
 
   /// Validates that a string slice is already slugified.
+  #[must_use]
   pub fn validate(input: &str) -> bool { strict_slugify(input) == input }
 
   /// Returns a reference to the slug contents.
+  #[must_use]
   pub fn as_str(&self) -> &str { &self.0 }
 }
 

@@ -31,7 +31,6 @@ async fn main() -> Result<()> {
     Some(&r2_access_key),
     Some(&r2_secret_access_key),
   )
-  .await
   .context("failed to initialize bucket")?;
 
   let key =
@@ -68,7 +67,10 @@ async fn main() -> Result<()> {
   println!("got {byte_count} bytes", byte_count = data.len(),);
 
   let path = Path::new("/tmp/test-object");
-  println!("copying object at key `{key}` to file at path {path:?}");
+  println!(
+    "copying object at key `{key}` to file at path \"{path}\"",
+    path = path.display()
+  );
   let mut file = tokio::fs::File::create(path)
     .await
     .into_diagnostic()

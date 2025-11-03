@@ -51,7 +51,7 @@ impl<M: Model> DatabaseLike<M> for PostgresDatabase<M> {
     self.list(limit, offset).await
   }
 
-  async fn count(&self) -> DatabaseResult<i64> { self.count().await }
+  async fn count(&self) -> DatabaseResult<u64> { self.count().await }
 
   async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     Ok(self.get(id).await?.is_some())

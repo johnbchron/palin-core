@@ -24,7 +24,7 @@ pub struct BlobMetadata {
   pub content_encoding: Option<String>,
   /// Content type (MIME type)
   pub content_type:     Option<String>,
-  /// ETag for versioning/caching
+  /// `ETag` for versioning/caching
   pub etag:             Option<String>,
   /// Last modified timestamp
   pub last_modified:    Option<String>,
@@ -51,7 +51,7 @@ pub struct BlobEntry {
   pub size:          u64,
   /// Last modified timestamp
   pub last_modified: Option<String>,
-  /// ETag if available
+  /// `ETag` if available
   pub etag:          Option<String>,
 }
 
@@ -140,7 +140,7 @@ pub trait BlobStorageLike: Send + Sync {
   /// # Errors
   ///
   /// Returns `InvalidInput` if the expiry duration is longer than the maximum
-  /// supported by the backend (typically limited to u32::MAX seconds, ~136
+  /// supported by the backend (typically limited to `u32::MAX` seconds, ~136
   /// years).
   async fn get_presigned_url(
     &self,

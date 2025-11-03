@@ -79,7 +79,7 @@ impl<T> RecordId<T> {
   pub const fn MIN() -> Self { Self(Ulid::nil(), PhantomData) }
   /// Returns the maximum possible [`RecordId`].
   #[allow(non_snake_case)]
-  pub const fn MAX() -> Self { Self(Ulid(u128::MAX), PhantomData) }
+  pub fn MAX() -> Self { Self(Ulid(u128::MAX), PhantomData) }
 }
 
 impl<T> FromStr for RecordId<T> {

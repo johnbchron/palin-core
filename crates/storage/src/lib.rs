@@ -17,7 +17,7 @@ pub struct BlobStorage {
 
 impl BlobStorage {
   /// Creates a new [`BlobStorage`] from an S3 bucket.
-  pub async fn new_s3_bucket(
+  pub fn new_s3_bucket(
     bucket: &str,
     region: &str,
     endpoint: &str,
@@ -36,6 +36,7 @@ impl BlobStorage {
   }
 
   /// Creates a new [`BlobStorage`] from an in-memory store.
+  #[must_use]
   pub fn new_memory() -> Self {
     BlobStorage {
       inner: Arc::new(BlobStorageMemory::new()),

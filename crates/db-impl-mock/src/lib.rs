@@ -19,7 +19,7 @@ pub struct MockDatabase<M: Model> {
 struct MockDatabaseInner<M: Model> {
   /// Main data storage: id -> model
   data:        HashMap<RecordId<M>, M>,
-  /// Index storage: (index_name, index_key) -> Vec<record_id>
+  /// Index storage: (`index_name`, `index_key`) -> `Vec<record_id>`
   indices:     HashMap<(String, String), Vec<RecordId<M>>>,
   /// Tracks whether schema has been initialized
   initialized: bool,
@@ -30,7 +30,8 @@ impl<M: Model> Default for MockDatabase<M> {
 }
 
 impl<M: Model> MockDatabase<M> {
-  /// Create a new MockDatabase.
+  /// Create a new `MockDatabase`.
+  #[must_use]
   pub fn new() -> Self {
     Self {
       inner:    Arc::new(RwLock::new(MockDatabaseInner {
@@ -43,14 +44,14 @@ impl<M: Model> MockDatabase<M> {
   }
 
   /// Initialize the mock schema (marks as initialized).
-  pub async fn initialize_schema(&self) -> DatabaseResult<()> {
+  pub fn initialize_schema(&self) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
     inner.initialized = true;
     Ok(())
   }
 
   /// Insert a new model into the mock database.
-  pub async fn insert(&self, model: &M) -> DatabaseResult<()> {
+  pub fn insert(&self, model: &M) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record already exists
@@ -62,19 +63,19 @@ impl<M: Model> MockDatabase<M> {
     }
 
     // Check unique index violations before inserting
-    self.check_unique_violations(&inner, model, None)?;
+    Self::check_unique_violations(&inner, model, None)?;
 
     // Insert the model
     inner.data.insert(model.id(), model.clone());
 
     // Insert index entries
-    self.insert_indices_inner(&mut inner, model)?;
+    Self::insert_indices_inner(&mut inner, model);
 
     Ok(())
   }
 
   /// Update an existing model in the mock database.
-  pub async fn update(&self, model: &M) -> DatabaseResult<()> {
+  pub fn update(&self, model: &M) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record exists
@@ -83,22 +84,22 @@ impl<M: Model> MockDatabase<M> {
     }
 
     // Check unique index violations (excluding current record)
-    self.check_unique_violations(&inner, model, Some(model.id()))?;
+    Self::check_unique_violations(&inner, model, Some(model.id()))?;
 
     // Delete old index entries
-    self.delete_indices_inner(&mut inner, model.id());
+    Self::delete_indices_inner(&mut inner, model.id());
 
     // Update the model
     inner.data.insert(model.id(), model.clone());
 
     // Insert new index entries
-    self.insert_indices_inner(&mut inner, model)?;
+    Self::insert_indices_inner(&mut inner, model);
 
     Ok(())
   }
 
   /// Delete a model from the mock database by ID.
-  pub async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
+  pub fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
     let mut inner = self.inner.write().unwrap();
 
     // Check if record exists
@@ -110,27 +111,26 @@ impl<M: Model> MockDatabase<M> {
     inner.data.remove(&id);
 
     // Remove from indices
-    self.delete_indices_inner(&mut inner, id);
+    Self::delete_indices_inner(&mut inner, id);
 
     Ok(())
   }
 
   /// Get a model by ID.
-  pub async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
+  pub fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
     let inner = self.inner.read().unwrap();
     Ok(inner.data.get(&id).cloned())
   }
 
   /// Get a model by ID, returning an error if not found.
-  pub async fn get_or_error(&self, id: RecordId<M>) -> DatabaseResult<M> {
+  pub fn get_or_error(&self, id: RecordId<M>) -> DatabaseResult<M> {
     self
-      .get(id)
-      .await?
+      .get(id)?
       .ok_or_else(|| DatabaseError::NotFound(id.to_string()))
   }
 
   /// Find a model by a unique index.
-  pub async fn find_by_unique_index(
+  pub fn find_by_unique_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
@@ -158,19 +158,18 @@ impl<M: Model> MockDatabase<M> {
   }
 
   /// Find a model by a unique index, returning an error if not found.
-  pub async fn find_by_unique_index_or_error(
+  pub fn find_by_unique_index_or_error(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
   ) -> DatabaseResult<M> {
     self
-      .find_by_unique_index(selector, key)
-      .await?
-      .ok_or_else(|| DatabaseError::NotFound(format!("{}={}", selector, key)))
+      .find_by_unique_index(selector, key)?
+      .ok_or_else(|| DatabaseError::NotFound(format!("{selector}={key}")))
   }
 
   /// Find all models matching a non-unique index.
-  pub async fn find_by_index(
+  pub fn find_by_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
@@ -198,7 +197,7 @@ impl<M: Model> MockDatabase<M> {
   }
 
   /// List all models (no specific ordering in mock).
-  pub async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
+  pub fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
     let inner = self.inner.read().unwrap();
 
     let results: Vec<M> = inner
@@ -213,13 +212,13 @@ impl<M: Model> MockDatabase<M> {
   }
 
   /// Count total number of records.
-  pub async fn count(&self) -> DatabaseResult<i64> {
+  pub fn count(&self) -> DatabaseResult<u64> {
     let inner = self.inner.read().unwrap();
-    Ok(inner.data.len() as i64)
+    Ok(inner.data.len().try_into().unwrap())
   }
 
   /// Check if a record exists by ID.
-  pub async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
+  pub fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
     let inner = self.inner.read().unwrap();
     Ok(inner.data.contains_key(&id))
   }
@@ -232,18 +231,19 @@ impl<M: Model> MockDatabase<M> {
   }
 
   /// Get the number of records (synchronous version for testing).
+  #[must_use]
   pub fn len(&self) -> usize {
     let inner = self.inner.read().unwrap();
     inner.data.len()
   }
 
   /// Check if the database is empty (synchronous version for testing).
+  #[must_use]
   pub fn is_empty(&self) -> bool { self.len() == 0 }
 
   // Helper methods
 
   fn check_unique_violations(
-    &self,
     inner: &MockDatabaseInner<M>,
     model: &M,
     exclude_id: Option<RecordId<M>>,
@@ -275,11 +275,7 @@ impl<M: Model> MockDatabase<M> {
     Ok(())
   }
 
-  fn insert_indices_inner(
-    &self,
-    inner: &mut MockDatabaseInner<M>,
-    model: &M,
-  ) -> DatabaseResult<()> {
+  fn insert_indices_inner(inner: &mut MockDatabaseInner<M>, model: &M) {
     let indices = M::indices();
 
     for def in indices.definitions {
@@ -289,15 +285,9 @@ impl<M: Model> MockDatabase<M> {
 
       inner.indices.entry(index_key).or_default().push(model.id());
     }
-
-    Ok(())
   }
 
-  fn delete_indices_inner(
-    &self,
-    inner: &mut MockDatabaseInner<M>,
-    id: RecordId<M>,
-  ) {
+  fn delete_indices_inner(inner: &mut MockDatabaseInner<M>, id: RecordId<M>) {
     // Remove all index entries for this record
     inner.indices.retain(|_, record_ids| {
       record_ids.retain(|rid| *rid != id);
@@ -308,7 +298,7 @@ impl<M: Model> MockDatabase<M> {
   fn format_index_key(values: &[IndexValue]) -> String {
     values
       .iter()
-      .map(|v| v.to_string())
+      .map(ToString::to_string)
       .collect::<Vec<_>>()
       .join("\0")
   }
@@ -317,29 +307,25 @@ impl<M: Model> MockDatabase<M> {
 #[async_trait::async_trait]
 impl<M: Model> DatabaseLike<M> for MockDatabase<M> {
   async fn initialize_schema(&self) -> DatabaseResult<()> {
-    self.initialize_schema().await
+    self.initialize_schema()
   }
 
-  async fn insert(&self, model: &M) -> DatabaseResult<()> {
-    self.insert(model).await
-  }
+  async fn insert(&self, model: &M) -> DatabaseResult<()> { self.insert(model) }
 
-  async fn update(&self, model: &M) -> DatabaseResult<()> {
-    self.update(model).await
-  }
+  async fn update(&self, model: &M) -> DatabaseResult<()> { self.update(model) }
 
   async fn delete(&self, id: RecordId<M>) -> DatabaseResult<()> {
-    self.delete(id).await
+    self.delete(id)
   }
 
   async fn delete_and_return(&self, id: RecordId<M>) -> DatabaseResult<M> {
-    let model = self.get_or_error(id).await?;
-    self.delete(id).await?;
+    let model = self.get_or_error(id)?;
+    self.delete(id)?;
     Ok(model)
   }
 
   async fn get(&self, id: RecordId<M>) -> DatabaseResult<Option<M>> {
-    self.get(id).await
+    self.get(id)
   }
 
   async fn find_by_unique_index(
@@ -347,7 +333,7 @@ impl<M: Model> DatabaseLike<M> for MockDatabase<M> {
     selector: M::IndexSelector,
     key: &IndexValue,
   ) -> DatabaseResult<Option<M>> {
-    self.find_by_unique_index(selector, key).await
+    self.find_by_unique_index(selector, key)
   }
 
   async fn find_by_index(
@@ -355,16 +341,16 @@ impl<M: Model> DatabaseLike<M> for MockDatabase<M> {
     selector: M::IndexSelector,
     key: &IndexValue,
   ) -> DatabaseResult<Vec<M>> {
-    self.find_by_index(selector, key).await
+    self.find_by_index(selector, key)
   }
 
   async fn list(&self, limit: u32, offset: u32) -> DatabaseResult<Vec<M>> {
-    self.list(limit, offset).await
+    self.list(limit, offset)
   }
 
-  async fn count(&self) -> DatabaseResult<i64> { self.count().await }
+  async fn count(&self) -> DatabaseResult<u64> { self.count() }
 
   async fn exists(&self, id: RecordId<M>) -> DatabaseResult<bool> {
-    self.exists(id).await
+    self.exists(id)
   }
 }

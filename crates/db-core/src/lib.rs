@@ -25,15 +25,12 @@ pub trait DatabaseLike<M: Model>: Send + Sync {
   ///
   /// Returns `true` if inserted, `false` if updated.
   async fn upsert(&self, model: &M) -> DatabaseResult<bool> {
-    match self.exists(model.id()).await? {
-      true => {
-        self.update(model).await?;
-        Ok(false)
-      }
-      false => {
-        self.insert(model).await?;
-        Ok(true)
-      }
+    if self.exists(model.id()).await? {
+      self.update(model).await?;
+      Ok(false)
+    } else {
+      self.insert(model).await?;
+      Ok(true)
     }
   }
 
@@ -87,7 +84,7 @@ pub trait DatabaseLike<M: Model>: Send + Sync {
       .find_by_unique_index(selector, key)
       .await?
       .ok_or_else(|| {
-        crate::DatabaseError::NotFound(format!("{}={}", selector, key))
+        crate::DatabaseError::NotFound(format!("{selector}={key}"))
       })
   }
 
@@ -117,15 +114,22 @@ pub trait DatabaseLike<M: Model>: Send + Sync {
   }
 
   /// Count the total number of records in storage.
-  async fn count(&self) -> DatabaseResult<i64>;
+  async fn count(&self) -> DatabaseResult<u64>;
 
   /// Count records matching a non-unique index.
   async fn count_by_index(
     &self,
     selector: M::IndexSelector,
     key: &IndexValue,
-  ) -> DatabaseResult<i64> {
-    Ok(self.find_by_index(selector, key).await?.len() as i64)
+  ) -> DatabaseResult<u64> {
+    Ok(
+      self
+        .find_by_index(selector, key)
+        .await?
+        .len()
+        .try_into()
+        .expect("failed to convert usize to u64"),
+    )
   }
 
   /// Check if a record exists by ID.

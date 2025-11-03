@@ -10,8 +10,10 @@ impl BlobKey {
   /// Create a new blob key
   pub fn new(key: impl Into<String>) -> Self { Self(key.into()) }
   /// Get the key as a string slice
+  #[must_use]
   pub fn as_str(&self) -> &str { &self.0 }
   /// Convert into inner String
+  #[must_use]
   pub fn into_inner(self) -> String { self.0 }
 }
 

@@ -47,7 +47,7 @@ fn create_user(id: u128, email: &str, name: &str, age: u32) -> User {
 #[tokio::test]
 async fn test_initialize_schema() {
   let db = MockDatabase::<Unit>::new();
-  let result = db.initialize_schema().await;
+  let result = db.initialize_schema();
   assert!(result.is_ok());
 }
 
@@ -60,8 +60,8 @@ async fn test_insert_and_get() {
     id: RecordId::from_ulid_u128(1),
   };
 
-  db.insert(&unit).await.unwrap();
-  let retrieved = db.get(unit.id).await.unwrap();
+  db.insert(&unit).unwrap();
+  let retrieved = db.get(unit.id).unwrap();
 
   assert_eq!(retrieved, Some(unit));
 }
@@ -73,8 +73,8 @@ async fn test_insert_duplicate_id_fails() {
     id: RecordId::from_ulid_u128(1),
   };
 
-  db.insert(&unit).await.unwrap();
-  let result = db.insert(&unit).await;
+  db.insert(&unit).unwrap();
+  let result = db.insert(&unit);
 
   assert!(result.is_err());
 }
@@ -85,8 +85,8 @@ async fn test_insert_duplicate_unique_index_fails() {
   let user1 = create_user(1, "alice@example.com", "Alice", 30);
   let user2 = create_user(2, "alice@example.com", "Alice Clone", 25);
 
-  db.insert(&user1).await.unwrap();
-  let result = db.insert(&user2).await;
+  db.insert(&user1).unwrap();
+  let result = db.insert(&user2);
 
   assert!(matches!(result, Err(DatabaseError::UniqueViolation { .. })));
 }
@@ -95,12 +95,12 @@ async fn test_insert_duplicate_unique_index_fails() {
 async fn test_update_existing_record() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let updated = create_user(1, "alice@example.com", "Alice Updated", 31);
-  db.update(&updated).await.unwrap();
+  db.update(&updated).unwrap();
 
-  let retrieved = db.get(user.id).await.unwrap().unwrap();
+  let retrieved = db.get(user.id).unwrap().unwrap();
   assert_eq!(retrieved.name, "Alice Updated");
   assert_eq!(retrieved.age, 31);
 }
@@ -112,7 +112,7 @@ async fn test_update_nonexistent_record_fails() {
     id: RecordId::from_ulid_u128(999),
   };
 
-  let result = db.update(&unit).await;
+  let result = db.update(&unit);
   assert!(matches!(result, Err(DatabaseError::NotFound(_))));
 }
 
@@ -122,18 +122,18 @@ async fn test_delete_existing_record() {
   let unit = Unit {
     id: RecordId::from_ulid_u128(1),
   };
-  db.insert(&unit).await.unwrap();
+  db.insert(&unit).unwrap();
 
-  db.delete(unit.id).await.unwrap();
+  db.delete(unit.id).unwrap();
 
-  let retrieved = db.get(unit.id).await.unwrap();
+  let retrieved = db.get(unit.id).unwrap();
   assert_eq!(retrieved, None);
 }
 
 #[tokio::test]
 async fn test_delete_nonexistent_record_fails() {
   let db = MockDatabase::<Unit>::new();
-  let result = db.delete(RecordId::from_ulid_u128(999)).await;
+  let result = db.delete(RecordId::from_ulid_u128(999));
 
   assert!(matches!(result, Err(DatabaseError::NotFound(_))));
 }
@@ -141,7 +141,7 @@ async fn test_delete_nonexistent_record_fails() {
 #[tokio::test]
 async fn test_get_nonexistent_record() {
   let db = MockDatabase::<Unit>::new();
-  let result = db.get(RecordId::from_ulid_u128(999)).await.unwrap();
+  let result = db.get(RecordId::from_ulid_u128(999)).unwrap();
 
   assert_eq!(result, None);
 }
@@ -158,7 +158,7 @@ async fn test_upsert_insert_path() {
   let inserted = db.upsert(&unit).await.unwrap();
 
   assert!(inserted); // Should return true for insert
-  let retrieved = db.get(unit.id).await.unwrap();
+  let retrieved = db.get(unit.id).unwrap();
   assert_eq!(retrieved, Some(unit));
 }
 
@@ -166,13 +166,13 @@ async fn test_upsert_insert_path() {
 async fn test_upsert_update_path() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let updated = create_user(1, "alice@example.com", "Alice Updated", 31);
   let inserted = db.upsert(&updated).await.unwrap();
 
   assert!(!inserted); // Should return false for update
-  let retrieved = db.get(user.id).await.unwrap().unwrap();
+  let retrieved = db.get(user.id).unwrap().unwrap();
   assert_eq!(retrieved.name, "Alice Updated");
 }
 
@@ -191,8 +191,8 @@ async fn test_get_many() {
     id: RecordId::from_ulid_u128(3),
   };
 
-  db.insert(&unit1).await.unwrap();
-  db.insert(&unit2).await.unwrap();
+  db.insert(&unit1).unwrap();
+  db.insert(&unit2).unwrap();
   // unit3 not inserted
 
   let ids = vec![unit1.id, unit2.id, unit3.id];
@@ -218,20 +218,20 @@ async fn test_list_with_pagination() {
   for i in 1..=5 {
     let user = create_user(
       i,
-      &format!("user{}@example.com", i),
-      &format!("User{}", i),
-      20 + i as u32,
+      &format!("user{i}@example.com"),
+      &format!("User{i}"),
+      20 + u32::try_from(i).unwrap(),
     );
-    db.insert(&user).await.unwrap();
+    db.insert(&user).unwrap();
   }
 
-  let page1 = db.list(2, 0).await.unwrap();
+  let page1 = db.list(2, 0).unwrap();
   assert_eq!(page1.len(), 2);
 
-  let page2 = db.list(2, 2).await.unwrap();
+  let page2 = db.list(2, 2).unwrap();
   assert_eq!(page2.len(), 2);
 
-  let page3 = db.list(2, 4).await.unwrap();
+  let page3 = db.list(2, 4).unwrap();
   assert_eq!(page3.len(), 1);
 }
 
@@ -241,11 +241,11 @@ async fn test_list_all() {
   for i in 1..=5 {
     let user = create_user(
       i,
-      &format!("user{}@example.com", i),
-      &format!("User{}", i),
-      20 + i as u32,
+      &format!("user{i}@example.com"),
+      &format!("User{i}"),
+      20 + u32::try_from(i).unwrap(),
     );
-    db.insert(&user).await.unwrap();
+    db.insert(&user).unwrap();
   }
 
   let all = db.list_all().await.unwrap();
@@ -255,7 +255,7 @@ async fn test_list_all() {
 #[tokio::test]
 async fn test_list_empty_db() {
   let db = MockDatabase::<Unit>::new();
-  let results = db.list(10, 0).await.unwrap();
+  let results = db.list(10, 0).unwrap();
 
   assert_eq!(results.len(), 0);
 }
@@ -266,14 +266,13 @@ async fn test_list_empty_db() {
 async fn test_find_by_unique_index() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let found = db
     .find_by_unique_index(
       UserIndexSelector::Email,
       &IndexValue::new("alice@example.com"),
     )
-    .await
     .unwrap();
 
   assert_eq!(found, Some(user));
@@ -288,7 +287,6 @@ async fn test_find_by_unique_index_not_found() {
       UserIndexSelector::Email,
       &IndexValue::new("nonexistent@example.com"),
     )
-    .await
     .unwrap();
 
   assert_eq!(found, None);
@@ -301,13 +299,12 @@ async fn test_find_by_index() {
   let user2 = create_user(2, "alice2@example.com", "Alice", 25);
   let user3 = create_user(3, "bob@example.com", "Bob", 35);
 
-  db.insert(&user1).await.unwrap();
-  db.insert(&user2).await.unwrap();
-  db.insert(&user3).await.unwrap();
+  db.insert(&user1).unwrap();
+  db.insert(&user2).unwrap();
+  db.insert(&user3).unwrap();
 
   let found = db
     .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
-    .await
     .unwrap();
 
   assert_eq!(found.len(), 2);
@@ -321,7 +318,6 @@ async fn test_find_by_index_empty() {
 
   let found = db
     .find_by_index(UserIndexSelector::Name, &IndexValue::new("NonExistent"))
-    .await
     .unwrap();
 
   assert_eq!(found.len(), 0);
@@ -333,8 +329,8 @@ async fn test_find_one_by_index() {
   let user1 = create_user(1, "alice1@example.com", "Alice", 30);
   let user2 = create_user(2, "alice2@example.com", "Alice", 25);
 
-  db.insert(&user1).await.unwrap();
-  db.insert(&user2).await.unwrap();
+  db.insert(&user1).unwrap();
+  db.insert(&user2).unwrap();
 
   let found = db
     .find_one_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
@@ -366,21 +362,21 @@ async fn test_count() {
   for i in 1..=5 {
     let user = create_user(
       i,
-      &format!("user{}@example.com", i),
-      &format!("User{}", i),
-      20 + i as u32,
+      &format!("user{i}@example.com"),
+      &format!("User{i}"),
+      20 + u32::try_from(i).unwrap(),
     );
-    db.insert(&user).await.unwrap();
+    db.insert(&user).unwrap();
   }
 
-  let count = db.count().await.unwrap();
+  let count = db.count().unwrap();
   assert_eq!(count, 5);
 }
 
 #[tokio::test]
 async fn test_count_empty() {
   let db = MockDatabase::<Unit>::new();
-  let count = db.count().await.unwrap();
+  let count = db.count().unwrap();
 
   assert_eq!(count, 0);
 }
@@ -392,9 +388,9 @@ async fn test_count_by_index() {
   let user2 = create_user(2, "alice2@example.com", "Alice", 25);
   let user3 = create_user(3, "bob@example.com", "Bob", 35);
 
-  db.insert(&user1).await.unwrap();
-  db.insert(&user2).await.unwrap();
-  db.insert(&user3).await.unwrap();
+  db.insert(&user1).unwrap();
+  db.insert(&user2).unwrap();
+  db.insert(&user3).unwrap();
 
   let count = db
     .count_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
@@ -424,16 +420,16 @@ async fn test_exists_true() {
   let unit = Unit {
     id: RecordId::from_ulid_u128(1),
   };
-  db.insert(&unit).await.unwrap();
+  db.insert(&unit).unwrap();
 
-  let exists = db.exists(unit.id).await.unwrap();
+  let exists = db.exists(unit.id).unwrap();
   assert!(exists);
 }
 
 #[tokio::test]
 async fn test_exists_false() {
   let db = MockDatabase::<Unit>::new();
-  let exists = db.exists(RecordId::from_ulid_u128(999)).await.unwrap();
+  let exists = db.exists(RecordId::from_ulid_u128(999)).unwrap();
 
   assert!(!exists);
 }
@@ -442,7 +438,7 @@ async fn test_exists_false() {
 async fn test_exists_by_unique_index_true() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let exists = db
     .exists_by_unique_index(
@@ -478,16 +474,16 @@ async fn test_get_or_error_success() {
   let unit = Unit {
     id: RecordId::from_ulid_u128(1),
   };
-  db.insert(&unit).await.unwrap();
+  db.insert(&unit).unwrap();
 
-  let retrieved = db.get_or_error(unit.id).await.unwrap();
+  let retrieved = db.get_or_error(unit.id).unwrap();
   assert_eq!(retrieved, unit);
 }
 
 #[tokio::test]
 async fn test_get_or_error_not_found() {
   let db = MockDatabase::<Unit>::new();
-  let result = db.get_or_error(RecordId::from_ulid_u128(999)).await;
+  let result = db.get_or_error(RecordId::from_ulid_u128(999));
 
   assert!(matches!(result, Err(DatabaseError::NotFound(_))));
 }
@@ -496,12 +492,12 @@ async fn test_get_or_error_not_found() {
 async fn test_delete_and_return() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let deleted = db.delete_and_return(user.id).await.unwrap();
   assert_eq!(deleted, user);
 
-  let exists = db.exists(user.id).await.unwrap();
+  let exists = db.exists(user.id).unwrap();
   assert!(!exists);
 }
 
@@ -517,14 +513,13 @@ async fn test_delete_and_return_not_found() {
 async fn test_find_by_unique_index_or_error_success() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   let found = db
     .find_by_unique_index_or_error(
       UserIndexSelector::Email,
       &IndexValue::new("alice@example.com"),
     )
-    .await
     .unwrap();
 
   assert_eq!(found, user);
@@ -534,12 +529,10 @@ async fn test_find_by_unique_index_or_error_success() {
 async fn test_find_by_unique_index_or_error_not_found() {
   let db = MockDatabase::<User>::new();
 
-  let result = db
-    .find_by_unique_index_or_error(
-      UserIndexSelector::Email,
-      &IndexValue::new("nonexistent@example.com"),
-    )
-    .await;
+  let result = db.find_by_unique_index_or_error(
+    UserIndexSelector::Email,
+    &IndexValue::new("nonexistent@example.com"),
+  );
 
   assert!(matches!(result, Err(DatabaseError::NotFound(_))));
 }
@@ -550,23 +543,21 @@ async fn test_find_by_unique_index_or_error_not_found() {
 async fn test_update_changes_index() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
   // Update changes the indexed field
   let updated = create_user(1, "alice@example.com", "Alicia", 30);
-  db.update(&updated).await.unwrap();
+  db.update(&updated).unwrap();
 
   // Old index should not find it
   let found_old = db
     .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
-    .await
     .unwrap();
   assert_eq!(found_old.len(), 0);
 
   // New index should find it
   let found_new = db
     .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alicia"))
-    .await
     .unwrap();
   assert_eq!(found_new.len(), 1);
 }
@@ -575,22 +566,20 @@ async fn test_update_changes_index() {
 async fn test_delete_removes_from_indexes() {
   let db = MockDatabase::<User>::new();
   let user = create_user(1, "alice@example.com", "Alice", 30);
-  db.insert(&user).await.unwrap();
+  db.insert(&user).unwrap();
 
-  db.delete(user.id).await.unwrap();
+  db.delete(user.id).unwrap();
 
   let found_by_email = db
     .find_by_unique_index(
       UserIndexSelector::Email,
       &IndexValue::new("alice@example.com"),
     )
-    .await
     .unwrap();
   assert_eq!(found_by_email, None);
 
   let found_by_name = db
     .find_by_index(UserIndexSelector::Name, &IndexValue::new("Alice"))
-    .await
     .unwrap();
   assert_eq!(found_by_name.len(), 0);
 }
@@ -605,11 +594,11 @@ async fn test_concurrent_operations() {
     let handle = tokio::spawn(async move {
       let user = create_user(
         i,
-        &format!("user{}@example.com", i),
-        &format!("User{}", i),
-        20 + i as u32,
+        &format!("user{i}@example.com"),
+        &format!("User{i}"),
+        20 + u32::try_from(i).unwrap(),
       );
-      db_clone.insert(&user).await
+      db_clone.insert(&user)
     });
     handles.push(handle);
   }
@@ -618,6 +607,6 @@ async fn test_concurrent_operations() {
     handle.await.unwrap().unwrap();
   }
 
-  let count = db.count().await.unwrap();
+  let count = db.count().unwrap();
   assert_eq!(count, 10);
 }

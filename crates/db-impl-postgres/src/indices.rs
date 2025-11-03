@@ -34,9 +34,7 @@ impl<M: Model> PostgresDatabase<M> {
         .execute(&mut **tx)
         .await
         .into_diagnostic()
-        .with_context(|| {
-          format!("Failed to create index table: {}", index_table)
-        })
+        .with_context(|| format!("Failed to create index table: {index_table}"))
         .map_err(DatabaseError::Other)?;
 
       // Create index on index_key for efficient lookups
@@ -49,7 +47,7 @@ impl<M: Model> PostgresDatabase<M> {
         .await
         .into_diagnostic()
         .with_context(|| {
-          format!("Failed to create btree index on: {}", index_table)
+          format!("Failed to create btree index on: {index_table}")
         })
         .map_err(DatabaseError::Other)?;
 
@@ -64,7 +62,7 @@ impl<M: Model> PostgresDatabase<M> {
           .await
           .into_diagnostic()
           .with_context(|| {
-            format!("Failed to create record_id index on: {}", index_table)
+            format!("Failed to create record_id index on: {index_table}")
           })
           .map_err(DatabaseError::Other)?;
       }
@@ -94,8 +92,7 @@ impl<M: Model> PostgresDatabase<M> {
       let index_key = Self::format_index_key(&values);
 
       let query = format!(
-        "INSERT INTO {} (index_key, record_id) VALUES ($1, $2)",
-        index_table
+        "INSERT INTO {index_table} (index_key, record_id) VALUES ($1, $2)"
       );
 
       match sqlx::query(&query)
@@ -131,7 +128,7 @@ impl<M: Model> PostgresDatabase<M> {
 
     for def in indices.definitions {
       let index_table = Self::calculate_index_table_name(def);
-      let query = format!("DELETE FROM {} WHERE record_id = $1", index_table);
+      let query = format!("DELETE FROM {index_table} WHERE record_id = $1");
 
       sqlx::query(&query)
         .bind(id.to_string())
@@ -156,7 +153,7 @@ impl<M: Model> PostgresDatabase<M> {
   pub(crate) fn format_index_key(values: &[IndexValue]) -> String {
     values
       .iter()
-      .map(|v| v.to_string())
+      .map(ToString::to_string)
       .collect::<Vec<_>>()
       .join("\0")
   }

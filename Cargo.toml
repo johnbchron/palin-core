@@ -6,6 +6,18 @@ resolver = "3"
 [workspace.lints.rust]
 missing_docs = "deny"
 
+[workspace.lints.clippy]
+branches_sharing_code = "deny"
+equatable_if_let = "deny"
+fallible_impl_from = "deny"
+missing_const_for_fn = "deny"
+must-use-candidate = "deny"
+needless-pass-by-value = "deny"
+
+missing-errors-doc = "allow"
+missing-panics-doc = "allow"
+pedantic = { level = "deny", priority = -1 }
+
 [workspace.dependencies]
 serde = { version = "1", features = [ "derive" ] }
 

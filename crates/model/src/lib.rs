@@ -34,6 +34,7 @@ pub struct IndexRegistry<M: 'static> {
 
 impl<M> IndexRegistry<M> {
   /// Create a new index registry.
+  #[must_use]
   pub const fn new(definitions: &'static [IndexDefinition<M>]) -> Self {
     Self { definitions }
   }
@@ -83,7 +84,7 @@ impl From<String> for IndexValue {
 
 /// Definition of a single index (can be simple or composite).
 pub struct IndexDefinition<M> {
-  /// The name of the index (matches the selector variant name in snake_case).
+  /// The name of the index (matches the selector variant name in snake case).
   pub name:      &'static str,
   /// Whether this is a unique index.
   pub unique:    bool,
