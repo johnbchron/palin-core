@@ -6,10 +6,11 @@
     src = filter {
       root = ../../.; # project root
       include = [
-        "crates" "Cargo.toml" "Cargo.lock" # typical rust source
-        ".cargo"                           # extra rust config
-        (filter.matchExt "toml")           # extra toml used by other projects
-        "media"                            # static assets
+        "crates" "examples"       # actual source
+        "Cargo.toml" "Cargo.lock" # top-level rust config
+        ".cargo"                  # extra rust config
+        (filter.matchExt "toml")  # extra toml used by other projects
+        "media"                   # static assets
       ];
     };
 

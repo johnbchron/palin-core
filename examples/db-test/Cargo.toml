@@ -6,8 +6,8 @@ edition = "2024"
 publish = false
 
 [dependencies]
-db = { path = "../db" }
-model = { path = "../model" }
+db = { path = "../../crates/db" }
+model = { path = "../../crates/model" }
 
 futures.workspace = true
 miette = { workspace = true, features = [ "fancy" ] }

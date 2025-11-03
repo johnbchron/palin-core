@@ -6,7 +6,7 @@ edition = "2024"
 publish = false
 
 [dependencies]
-storage = { path = "../storage" }
+storage = { path = "../../crates/storage" }
 
 bytes.workspace = true
 futures.workspace = true
