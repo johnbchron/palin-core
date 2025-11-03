@@ -14,7 +14,7 @@ chrono.workspace = true
 futures.workspace = true
 miette.workspace = true
 reqwest.workspace = true
-tokio-util.workspace = true
+tokio-util = { workspace = true, features = [ "io" ] }
 tracing.workspace = true
 
 rust-s3 = { version = "0.37", default-features = false, features = [

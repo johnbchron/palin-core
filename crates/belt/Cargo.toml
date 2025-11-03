@@ -1,0 +1,15 @@
+[package]
+name = "belt"
+version = "0.1.0"
+
+edition = "2024"
+publish = false
+
+[dependencies]
+bytes.workspace = true
+futures.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = [ "io" ] }
+
+[lints]
+workspace = true
