@@ -23,11 +23,15 @@ impl<M: Model> PostgresDatabase<M> {
         "CREATE TABLE IF NOT EXISTS {index_table} (
             index_key TEXT NOT NULL,
             record_id TEXT NOT NULL REFERENCES {table_name}(id) ON DELETE \
-         CASCADE,
+         CASCADE
             {unique_constraint}
         )",
         table_name = M::TABLE_NAME,
-        unique_constraint = if def.unique { "UNIQUE (index_key)" } else { "" },
+        unique_constraint = if def.unique {
+          ", UNIQUE (index_key)"
+        } else {
+          ""
+        },
       );
 
       sqlx::query(&query)
