@@ -12,29 +12,35 @@ struct Unit {
 }
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Model)]
-#[model(table = "users")]
-#[model(composite_index(
-    name = "name_age",
-    extract = |m| vec![
-      IndexValue::new([m.name.clone(), m.age.to_string()])
-  ]))]
+#[model(
+  table = "users",
+  index(name = "name_age", extract =
+    |m| vec![IndexValue::new([m.name.clone(), m.age.to_string()])]
+  ),
+  index(name = "unit_relation", extract =
+    |m| vec![IndexValue::new_single(m.relation.to_string())]
+  ),
+  index(name = "email", unique, extract =
+    |m| vec![IndexValue::new_single(&m.email)]
+  ),
+  index(name = "name", extract =
+    |m| vec![IndexValue::new_single(&m.name)]
+  ),
+)]
 struct User {
   #[model(id)]
-  id: RecordId<User>,
-
-  #[model(unique)]
-  email: String,
-
-  #[model(index)]
-  name: String,
-
-  age: u32,
+  id:       RecordId<User>,
+  relation: RecordId<Unit>,
+  email:    String,
+  name:     String,
+  age:      u32,
 }
 
 // Helper to create test users
 fn create_user(id: u128, email: &str, name: &str, age: u32) -> User {
   User {
     id: RecordId::from_ulid_u128(id),
+    relation: RecordId::from_ulid_u128(0),
     email: email.to_string(),
     name: name.to_string(),
     age,

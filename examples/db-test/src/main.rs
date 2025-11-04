@@ -6,24 +6,24 @@ use model::{IndexValue, Model, RecordId};
 use serde::{Deserialize, Serialize};
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize, Model)]
-#[model(table = "users")]
-#[model(composite_index(
-  name = "name_age",
-  extract = |m| vec![
-    IndexValue::new([m.name.clone(), m.age.to_string()])
-  ])
+#[model(
+  table = "users",
+  index(name = "name_age", extract =
+    |m| vec![IndexValue::new([m.name.clone(), m.age.to_string()])]
+  ),
+  index(name = "email", unique, extract =
+    |m| vec![IndexValue::new_single(&m.email)]
+  ),
+  index(name = "name", extract =
+    |m| vec![IndexValue::new_single(&m.name)]
+  )
 )]
 struct User {
   #[model(id)]
-  id: RecordId<User>,
-
-  #[model(unique)]
+  id:    RecordId<User>,
   email: String,
-
-  #[model(index)]
-  name: String,
-
-  age: u32,
+  name:  String,
+  age:   u32,
 }
 
 #[tokio::main]
