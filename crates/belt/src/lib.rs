@@ -11,7 +11,8 @@ use std::{
 
 use bytes::{Bytes, BytesMut};
 use futures::{TryStreamExt, stream::Stream};
-use tokio_util::io::StreamReader;
+use tokio::io::AsyncBufRead;
+use tokio_util::io::{ReaderStream, StreamReader};
 
 /// An opaque container for streaming bytes data.
 pub struct Belt {
@@ -30,7 +31,8 @@ enum Inner {
 }
 
 impl Belt {
-  /// Create from any stream of `Bytes`.
+  /// Create from any stream of [`Bytes`].
+  #[must_use]
   pub fn new<S>(stream: S) -> Self
   where
     S: Stream<Item = Result<Bytes, io::Error>> + Send + 'static,
@@ -40,7 +42,38 @@ impl Belt {
     }
   }
 
+  /// Create from a [`Bytes`].
+  #[must_use]
+  pub const fn new_from_bytes(input: Bytes) -> Self {
+    Self {
+      inner: Inner::Static(Some(input)),
+    }
+  }
+
+  /// Create from a slice of bytes.
+  #[must_use]
+  pub fn new_from_slice(input: &[u8]) -> Self {
+    Self::new_from_bytes(Bytes::copy_from_slice(input))
+  }
+
+  /// Create from a slice of bytes.
+  #[must_use]
+  pub const fn new_from_static_slice(input: &'static [u8]) -> Self {
+    Self::new_from_bytes(Bytes::from_static(input))
+  }
+
+  /// Create a stream from an [`AsyncBufRead`](tokio::io::AsyncBufRead)
+  /// implementer.
+  #[must_use]
+  pub fn new_from_async_buf_read<R>(reader: R) -> Self
+  where
+    R: AsyncBufRead + Send + 'static,
+  {
+    Self::new(ReaderStream::new(reader))
+  }
+
   /// Create an empty stream.
+  #[must_use]
   pub const fn empty() -> Self {
     Self {
       inner: Inner::Static(None),
@@ -79,21 +112,17 @@ impl Stream for Belt {
 }
 
 impl From<Bytes> for Belt {
-  fn from(bytes: Bytes) -> Self {
-    Self {
-      inner: Inner::Static(Some(bytes)),
-    }
-  }
+  fn from(bytes: Bytes) -> Self { Self::new_from_bytes(bytes) }
 }
 
 impl From<Vec<u8>> for Belt {
-  fn from(vec: Vec<u8>) -> Self { Bytes::from(vec).into() }
+  fn from(vec: Vec<u8>) -> Self { Self::new_from_bytes(Bytes::from(vec)) }
 }
 
 impl From<&'static [u8]> for Belt {
-  fn from(slice: &'static [u8]) -> Self { Bytes::from_static(slice).into() }
+  fn from(slice: &'static [u8]) -> Self { Self::new_from_static_slice(slice) }
 }
 
 impl From<&'static str> for Belt {
-  fn from(s: &'static str) -> Self { Bytes::from_static(s.as_bytes()).into() }
+  fn from(s: &'static str) -> Self { Belt::new_from_static_slice(s.as_bytes()) }
 }
