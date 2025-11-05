@@ -4,7 +4,7 @@
 mod tests;
 
 use std::{
-  io,
+  fmt, io,
   pin::Pin,
   task::{Context, Poll},
 };
@@ -16,6 +16,12 @@ use tokio_util::io::StreamReader;
 /// An opaque container for streaming bytes data.
 pub struct Belt {
   inner: Inner,
+}
+
+impl fmt::Debug for Belt {
+  fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    f.debug_struct("Belt").finish()
+  }
 }
 
 enum Inner {
