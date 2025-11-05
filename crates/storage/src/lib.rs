@@ -1,5 +1,8 @@
 //! Frontend for a cloud storage interface.
 
+#[cfg(test)]
+mod tests;
+
 use std::sync::Arc;
 
 use storage_core::RequestStream;
