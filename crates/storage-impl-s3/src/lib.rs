@@ -3,7 +3,7 @@
 mod errors;
 
 use futures::TryStreamExt;
-use miette::{Context, IntoDiagnostic};
+use miette::{Context, IntoDiagnostic, miette};
 use s3::{Bucket, creds::Credentials};
 use storage_core::{
   BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, BlobStorageResult,
@@ -73,7 +73,6 @@ impl BlobStorageLike for BlobStorageS3 {
       key = %key,
       bucket = %self.bucket.name,
       overwrite = options.overwrite,
-      content_type = ?options.content_type,
     ),
     err
   )]
@@ -88,7 +87,7 @@ impl BlobStorageLike for BlobStorageS3 {
     // Check if object exists when overwrite is false
     if !options.overwrite {
       debug!("Checking if object already exists");
-      let exists = self.exists(key).await?;
+      let exists = self.head(key).await?.is_some();
       if exists {
         warn!("Object already exists and overwrite=false");
         return Err(BlobStorageError::AlreadyExists(key.clone()));
@@ -99,16 +98,8 @@ impl BlobStorageLike for BlobStorageS3 {
     // adapt to AsyncReader
     let mut stream = StreamReader::new(data);
 
-    // start building request
+    // build request
     let req = self.bucket.put_object_stream_builder(key);
-
-    // add content type if available
-    let req = if let Some(ref content_type) = options.content_type {
-      debug!(content_type = content_type, "Setting content type");
-      req.with_content_type(content_type)
-    } else {
-      req
-    };
 
     // send the request
     debug!("Executing upload stream");
@@ -153,7 +144,10 @@ impl BlobStorageLike for BlobStorageS3 {
     ),
     err
   )]
-  async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
+  async fn head(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<Option<BlobMetadata>> {
     debug!("Fetching object metadata");
 
     let (head, code) = self.bucket.head_object(key).await.map_err(|e| {
@@ -163,11 +157,31 @@ impl BlobStorageLike for BlobStorageS3 {
 
     debug!(status_code = code, "Received HEAD response");
 
+    let err = miette!("got {code} response from API");
+    match code {
+      200 => (),
+      200..300 | 300..400 | 412 => {
+        warn!(
+          code,
+          response = ?head,
+          "Got technically successful but curious response code from S3"
+        );
+      }
+
+      400 => return Err(BlobStorageError::InvalidInput(err)),
+      403 => return Err(BlobStorageError::PermissionDenied(err)),
+
+      404 => return Ok(None),
+
+      500..600 => return Err(BlobStorageError::NetworkError(err)),
+      _ => return Err(BlobStorageError::Unknown(err)),
+    }
+
     let size = head
       .content_length
       .ok_or_else(|| {
         error!("HEAD response missing content_length");
-        BlobStorageError::NetworkError(miette::miette!(
+        BlobStorageError::NetworkError(miette!(
           "head response did not include content_length"
         ))
       })?
@@ -181,21 +195,17 @@ impl BlobStorageLike for BlobStorageS3 {
 
     let metadata = BlobMetadata {
       size,
-      content_encoding: head.content_encoding.clone(),
-      content_type: head.content_type.clone(),
       etag: head.e_tag.clone(),
       last_modified: head.last_modified.clone(),
-      metadata: head.metadata.unwrap_or_default(),
     };
 
     info!(
       size = size,
-      content_type = ?metadata.content_type,
       etag = ?metadata.etag,
       "Object metadata retrieved successfully"
     );
 
-    Ok(metadata)
+    Ok(Some(metadata))
   }
 
   #[instrument(
@@ -223,56 +233,6 @@ impl BlobStorageLike for BlobStorageS3 {
     fields(
       key = %key,
       bucket = %self.bucket.name,
-    ),
-    err
-  )]
-  async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
-    debug!("Checking if object exists");
-
-    let exists = self.bucket.object_exists(key).await.map_err(|e| {
-      error!(error = ?e, "Failed to check object existence");
-      s3_error_to_blob_storage_error(e)
-    })?;
-
-    debug!(exists = exists, "Object existence check completed");
-    Ok(exists)
-  }
-
-  #[instrument(
-    skip(self),
-    fields(
-      from_key = %from_key,
-      to_key = %to_key,
-      bucket = %self.bucket.name,
-    ),
-    err
-  )]
-  async fn copy(
-    &self,
-    from_key: &BlobKey,
-    to_key: &BlobKey,
-  ) -> BlobStorageResult<()> {
-    debug!("Copying object");
-
-    self
-      .bucket
-      .copy_object_internal(from_key, to_key)
-      .await
-      .map(|_| ())
-      .map_err(|e| {
-        error!(error = ?e, "Failed to copy object");
-        s3_error_to_blob_storage_error(e)
-      })?;
-
-    info!("Object copied successfully");
-    Ok(())
-  }
-
-  #[instrument(
-    skip(self),
-    fields(
-      key = %key,
-      bucket = %self.bucket.name,
       expiry_secs = expiry.as_secs(),
     ),
     err
@@ -292,7 +252,7 @@ impl BlobStorageLike for BlobStorageS3 {
         max_secs = u32::MAX,
         "Expiry duration exceeds maximum"
       );
-      return Err(BlobStorageError::InvalidInput(miette::miette!(
+      return Err(BlobStorageError::InvalidInput(miette!(
         "Expiry duration of {} seconds exceeds maximum supported duration of \
          {} seconds (~136 years)",
         expiry_secs,

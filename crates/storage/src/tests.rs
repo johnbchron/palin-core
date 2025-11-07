@@ -52,10 +52,7 @@ mod generic_testing {
     let data = b"Hello, World!".to_vec();
 
     // Upload
-    let options = UploadOptions {
-      content_type: Some("text/plain".to_string()),
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data.clone()), options)
       .await
@@ -76,10 +73,7 @@ mod generic_testing {
     let data2 = b"second".to_vec();
 
     // First upload
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    false,
-    };
+    let options = UploadOptions { overwrite: false };
     storage
       .put_stream(&key, bytes_stream(data1.clone()), options.clone())
       .await
@@ -92,10 +86,7 @@ mod generic_testing {
     assert!(matches!(result, Err(BlobStorageError::AlreadyExists(_))));
 
     // Third upload with overwrite should succeed
-    let options_overwrite = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options_overwrite = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data2.clone()), options_overwrite)
       .await
@@ -122,22 +113,15 @@ mod generic_testing {
     let key = BlobKey::new("metadata-test");
     let data = b"test data for metadata".to_vec();
 
-    let options = UploadOptions {
-      content_type: Some("application/octet-stream".to_string()),
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data.clone()), options)
       .await
       .unwrap();
 
-    let metadata = storage.head(&key).await.unwrap();
+    let metadata = storage.head(&key).await.unwrap().unwrap();
 
     assert_eq!(metadata.size, data.len() as u64);
-    assert_eq!(
-      metadata.content_type,
-      Some("application/octet-stream".to_string())
-    );
     assert!(metadata.etag.is_some());
   }
 
@@ -147,7 +131,7 @@ mod generic_testing {
     let key = BlobKey::new("nonexistent-head");
 
     let result = storage.head(&key).await;
-    assert!(matches!(result, Err(BlobStorageError::NotFound(_))));
+    assert!(matches!(result, Ok(None)));
   }
 
   #[tokio::test]
@@ -157,23 +141,20 @@ mod generic_testing {
     let data = b"to be deleted".to_vec();
 
     // Upload
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data), options)
       .await
       .unwrap();
 
     // Verify it exists
-    assert!(storage.exists(&key).await.unwrap());
+    assert!(storage.head(&key).await.unwrap().is_some());
 
     // Delete
     storage.delete(&key).await.unwrap();
 
     // Verify it's gone
-    assert!(!storage.exists(&key).await.unwrap());
+    assert!(storage.head(&key).await.unwrap().is_none());
   }
 
   #[tokio::test]
@@ -190,84 +171,13 @@ mod generic_testing {
   }
 
   #[tokio::test]
-  async fn test_exists<I: StorageInstantiator>() {
-    let storage = setup::<I>();
-    let key = BlobKey::new("exists-test");
-    let data = b"exists check".to_vec();
-
-    // Should not exist initially
-    assert!(!storage.exists(&key).await.unwrap());
-
-    // Upload
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
-    storage
-      .put_stream(&key, bytes_stream(data), options)
-      .await
-      .unwrap();
-
-    // Should exist now
-    assert!(storage.exists(&key).await.unwrap());
-
-    // Delete
-    storage.delete(&key).await.unwrap();
-
-    // Should not exist again
-    assert!(!storage.exists(&key).await.unwrap());
-  }
-
-  #[tokio::test]
-  async fn test_copy_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
-    let source_key = BlobKey::new("copy-source");
-    let dest_key = BlobKey::new("copy-dest");
-    let data = b"data to copy".to_vec();
-
-    // Upload source
-    let options = UploadOptions {
-      content_type: Some("text/plain".to_string()),
-      overwrite:    true,
-    };
-    storage
-      .put_stream(&source_key, bytes_stream(data.clone()), options)
-      .await
-      .unwrap();
-
-    // Copy
-    storage.copy(&source_key, &dest_key).await.unwrap();
-
-    // Verify destination exists and has same content
-    let stream = storage.get_stream(&dest_key).await.unwrap();
-    let retrieved = collect_stream(stream).await.unwrap();
-    assert_eq!(data, retrieved);
-
-    // Verify source still exists
-    assert!(storage.exists(&source_key).await.unwrap());
-  }
-
-  #[tokio::test]
-  async fn test_copy_nonexistent_source<I: StorageInstantiator>() {
-    let storage = setup::<I>();
-    let source_key = BlobKey::new("nonexistent-source");
-    let dest_key = BlobKey::new("copy-dest");
-
-    let result = storage.copy(&source_key, &dest_key).await;
-    assert!(matches!(result, Err(BlobStorageError::NotFound(_))));
-  }
-
-  #[tokio::test]
   async fn test_presigned_url<I: StorageInstantiator>() {
     let storage = setup::<I>();
     let key = BlobKey::new("presigned-test");
     let data = b"presigned url test".to_vec();
 
     // Upload
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data), options)
       .await
@@ -322,17 +232,14 @@ mod generic_testing {
     let size = 10 * 1024 * 1024;
     let data = vec![42u8; size];
 
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data.clone()), options)
       .await
       .unwrap();
 
     // Verify size in metadata
-    let metadata = storage.head(&key).await.unwrap();
+    let metadata = storage.head(&key).await.unwrap().unwrap();
     assert_eq!(metadata.size, size as u64);
 
     // Verify content
@@ -347,17 +254,14 @@ mod generic_testing {
     let key = BlobKey::new("empty-blob");
     let data = Vec::new();
 
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data.clone()), options)
       .await
       .unwrap();
 
     // Verify metadata shows zero size
-    let metadata = storage.head(&key).await.unwrap();
+    let metadata = storage.head(&key).await.unwrap().unwrap();
     assert_eq!(metadata.size, 0);
 
     // Verify retrieval
@@ -372,10 +276,7 @@ mod generic_testing {
     let key = BlobKey::new("test/with/slashes-and_underscores");
     let data = b"special key test".to_vec();
 
-    let options = UploadOptions {
-      content_type: None,
-      overwrite:    true,
-    };
+    let options = UploadOptions { overwrite: true };
     storage
       .put_stream(&key, bytes_stream(data.clone()), options)
       .await
@@ -401,10 +302,7 @@ mod generic_testing {
       let data = format!("data-{i}").into_bytes();
 
       let handle = tokio::spawn(async move {
-        let options = UploadOptions {
-          content_type: None,
-          overwrite:    true,
-        };
+        let options = UploadOptions { overwrite: true };
         storage
           .put_stream(&key, bytes_stream(data), options)
           .await
@@ -419,7 +317,7 @@ mod generic_testing {
 
     // Verify all uploads succeeded
     for key in &keys {
-      assert!(storage.exists(key).await.unwrap());
+      assert!(storage.head(key).await.unwrap().is_some());
     }
   }
 

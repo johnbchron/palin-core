@@ -65,7 +65,10 @@ impl BlobStorage {
     self.inner.get_stream(key).await
   }
   /// Get metadata for a blob without downloading content
-  pub async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
+  pub async fn head(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<Option<BlobMetadata>> {
     self.inner.head(key).await
   }
   /// Delete a blob
@@ -74,15 +77,7 @@ impl BlobStorage {
   }
   /// Check if a blob exists
   pub async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
-    self.inner.exists(key).await
-  }
-  /// Copy a blob from one key to another
-  pub async fn copy(
-    &self,
-    from_key: &BlobKey,
-    to_key: &BlobKey,
-  ) -> BlobStorageResult<()> {
-    self.inner.copy(from_key, to_key).await
+    Ok(self.inner.head(key).await?.is_some())
   }
   /// Get a pre-signed URL for temporary access (if supported)
   pub async fn get_presigned_url(

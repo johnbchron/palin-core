@@ -1,6 +1,6 @@
 //! Trait for a cloud storage interface.
 
-use std::{collections::HashMap, io, pin::Pin};
+use std::{io, pin::Pin};
 
 use async_trait::async_trait;
 pub use bytes::Bytes;
@@ -19,27 +19,19 @@ pub type ResponseStream =
 #[derive(Debug, Clone)]
 pub struct BlobMetadata {
   /// Size of the blob in bytes
-  pub size:             u64,
-  /// Content encoding (compression, etc.)
-  pub content_encoding: Option<String>,
-  /// Content type (MIME type)
-  pub content_type:     Option<String>,
+  pub size:          u64,
   /// `ETag` for versioning/caching
-  pub etag:             Option<String>,
+  pub etag:          Option<String>,
   /// Last modified timestamp
-  pub last_modified:    Option<String>,
-  /// Custom metadata key-value pairs
-  pub metadata:         HashMap<String, String>,
+  pub last_modified: Option<String>,
 }
 
 /// Options for uploading blobs
 #[derive(Debug, Clone, Default)]
 pub struct UploadOptions {
-  /// Content type to set
-  pub content_type: Option<String>,
   /// Whether to overwrite existing blob (if false, return error if blob
   /// exists)
-  pub overwrite:    bool,
+  pub overwrite: bool,
 }
 
 /// A single entry in a list operation
@@ -120,28 +112,15 @@ pub trait BlobStorageLike: Send + Sync {
   ) -> BlobStorageResult<ResponseStream>;
 
   /// Get metadata for a blob without downloading content
-  async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata>;
+  async fn head(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<Option<BlobMetadata>>;
 
   /// Delete a blob
   async fn delete(&self, key: &BlobKey) -> BlobStorageResult<()>;
 
-  /// Check if a blob exists
-  async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool>;
-
-  /// Copy a blob from one key to another
-  async fn copy(
-    &self,
-    from_key: &BlobKey,
-    to_key: &BlobKey,
-  ) -> BlobStorageResult<()>;
-
   /// Get a pre-signed URL for temporary access (if supported)
-  ///
-  /// # Errors
-  ///
-  /// Returns `InvalidInput` if the expiry duration is longer than the maximum
-  /// supported by the backend (typically limited to `u32::MAX` seconds, ~136
-  /// years).
   async fn get_presigned_url(
     &self,
     key: &BlobKey,

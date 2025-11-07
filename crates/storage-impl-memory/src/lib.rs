@@ -20,8 +20,6 @@ use tracing::{debug, error, info, instrument, warn};
 struct StoredBlob {
   /// The actual blob data
   data:          Bytes,
-  /// Content type
-  content_type:  Option<String>,
   /// `ETag` (generated from content hash)
   etag:          String,
   /// Last modified timestamp
@@ -29,20 +27,18 @@ struct StoredBlob {
 }
 
 impl StoredBlob {
-  fn new(data: Bytes, content_type: Option<String>) -> Self {
+  fn new(data: Bytes) -> Self {
     let etag = format!("{:x}", md5::compute(&data));
     let last_modified = Self::current_timestamp();
 
     debug!(
       data_size = data.len(),
-      content_type = ?content_type,
       etag = %etag,
       "Created new stored blob"
     );
 
     Self {
       data,
-      content_type,
       etag,
       last_modified,
     }
@@ -61,12 +57,9 @@ impl StoredBlob {
 
   fn metadata(&self) -> BlobMetadata {
     BlobMetadata {
-      size:             self.data.len() as u64,
-      content_encoding: None,
-      content_type:     self.content_type.clone(),
-      etag:             Some(self.etag.clone()),
-      last_modified:    Some(self.last_modified.clone()),
-      metadata:         HashMap::new(),
+      size:          self.data.len() as u64,
+      etag:          Some(self.etag.clone()),
+      last_modified: Some(self.last_modified.clone()),
     }
   }
 }
@@ -167,7 +160,6 @@ impl BlobStorageLike for BlobStorageMemory {
     fields(
       key = %key,
       overwrite = options.overwrite,
-      content_type = ?options.content_type,
     ),
     err
   )]
@@ -209,7 +201,7 @@ impl BlobStorageLike for BlobStorageMemory {
 
     debug!(total_size = total_size, "Combined chunks into single blob");
 
-    let blob = StoredBlob::new(Bytes::from(combined), options.content_type);
+    let blob = StoredBlob::new(Bytes::from(combined));
 
     // Store the blob
     self
@@ -263,23 +255,24 @@ impl BlobStorageLike for BlobStorageMemory {
     fields(key = %key),
     err
   )]
-  async fn head(&self, key: &BlobKey) -> BlobStorageResult<BlobMetadata> {
+  async fn head(
+    &self,
+    key: &BlobKey,
+  ) -> BlobStorageResult<Option<BlobMetadata>> {
     debug!("Fetching blob metadata");
 
     let storage = self.storage.read().await;
-    let blob = storage.get(key.as_str()).ok_or_else(|| {
-      error!("Blob not found");
-      BlobStorageError::NotFound(key.clone())
-    })?;
+    let blob = storage.get(key.as_str());
 
-    let metadata = blob.metadata();
+    let metadata = blob.map(StoredBlob::metadata);
 
-    info!(
-      size = metadata.size,
-      content_type = ?metadata.content_type,
-      etag = ?metadata.etag,
-      "Blob metadata retrieved successfully"
-    );
+    if let Some(ref metadata) = metadata {
+      info!(
+        size = metadata.size,
+        etag = ?metadata.etag,
+        "Blob metadata retrieved successfully"
+      );
+    }
 
     Ok(metadata)
   }
@@ -299,66 +292,6 @@ impl BlobStorageLike for BlobStorageMemory {
     })?;
 
     info!(size = blob.data.len(), "Blob deleted successfully");
-
-    Ok(())
-  }
-
-  #[instrument(
-    skip(self),
-    fields(key = %key),
-    err
-  )]
-  async fn exists(&self, key: &BlobKey) -> BlobStorageResult<bool> {
-    debug!("Checking if blob exists");
-
-    let storage = self.storage.read().await;
-    let exists = storage.contains_key(key.as_str());
-
-    debug!(exists = exists, "Blob existence check completed");
-
-    Ok(exists)
-  }
-
-  #[instrument(
-    skip(self),
-    fields(
-      from_key = %from_key,
-      to_key = %to_key,
-    ),
-    err
-  )]
-  async fn copy(
-    &self,
-    from_key: &BlobKey,
-    to_key: &BlobKey,
-  ) -> BlobStorageResult<()> {
-    debug!("Copying blob");
-
-    let storage = self.storage.read().await;
-    let blob = storage
-      .get(from_key.as_str())
-      .ok_or_else(|| {
-        error!("Source blob not found");
-        BlobStorageError::NotFound(from_key.clone())
-      })?
-      .clone();
-
-    let blob_size = blob.data.len();
-    debug!(size = blob_size, "Retrieved source blob for copying");
-
-    drop(storage);
-
-    // Update the last_modified timestamp for the copy
-    let mut copied_blob = blob;
-    copied_blob.last_modified = StoredBlob::current_timestamp();
-
-    self
-      .storage
-      .write()
-      .await
-      .insert(to_key.as_str().to_string(), copied_blob);
-
-    info!(size = blob_size, "Blob copied successfully");
 
     Ok(())
   }
@@ -435,10 +368,7 @@ mod tests {
     }));
 
     storage
-      .put_stream(&key, stream, UploadOptions {
-        content_type: Some("text/plain".to_string()),
-        overwrite:    true,
-      })
+      .put_stream(&key, stream, UploadOptions { overwrite: true })
       .await
       .unwrap();
 
@@ -460,16 +390,12 @@ mod tests {
       async move { Ok(data.clone()) }
     }));
     storage
-      .put_stream(&key, stream, UploadOptions {
-        content_type: Some("text/plain".to_string()),
-        overwrite:    true,
-      })
+      .put_stream(&key, stream, UploadOptions { overwrite: true })
       .await
       .unwrap();
 
-    let metadata = storage.head(&key).await.unwrap();
+    let metadata = storage.head(&key).await.unwrap().unwrap();
     assert_eq!(metadata.size, 11);
-    assert_eq!(metadata.content_type, Some("text/plain".to_string()));
   }
 
   #[tokio::test]
@@ -484,32 +410,9 @@ mod tests {
       .await
       .unwrap();
 
-    assert!(storage.exists(&key).await.unwrap());
+    assert!(storage.head(&key).await.unwrap().is_some());
     storage.delete(&key).await.unwrap();
-    assert!(!storage.exists(&key).await.unwrap());
-  }
-
-  #[tokio::test]
-  async fn test_copy() {
-    let storage = BlobStorageMemory::new();
-    let from_key = BlobKey::new("from-key");
-    let to_key = BlobKey::new("to-key");
-    let data = Bytes::from("hello world");
-
-    let stream = Box::pin(stream::once({
-      let data = data.clone();
-      async move { Ok(data.clone()) }
-    }));
-    storage
-      .put_stream(&from_key, stream, UploadOptions::default())
-      .await
-      .unwrap();
-
-    storage.copy(&from_key, &to_key).await.unwrap();
-
-    let mut result_stream = storage.get_stream(&to_key).await.unwrap();
-    let result = result_stream.next().await.unwrap().unwrap();
-    assert_eq!(result, data);
+    assert!(storage.head(&key).await.unwrap().is_none());
   }
 
   #[tokio::test]
@@ -549,20 +452,14 @@ mod tests {
     // First upload should succeed
     let stream1 = Box::pin(stream::once(async move { Ok(data1) }));
     storage
-      .put_stream(&key, stream1, UploadOptions {
-        overwrite: false,
-        ..Default::default()
-      })
+      .put_stream(&key, stream1, UploadOptions { overwrite: false })
       .await
       .unwrap();
 
     // Second upload with overwrite=false should fail
     let stream2 = Box::pin(stream::once(async move { Ok(data2) }));
     let result = storage
-      .put_stream(&key, stream2, UploadOptions {
-        overwrite: false,
-        ..Default::default()
-      })
+      .put_stream(&key, stream2, UploadOptions { overwrite: false })
       .await;
 
     assert!(matches!(result, Err(BlobStorageError::AlreadyExists(_))));
