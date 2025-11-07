@@ -91,6 +91,44 @@ pub enum BlobStorageError {
   Unknown(miette::Report),
 }
 
+impl BlobStorageError {
+  /// Converts [`BlobStorageError`] into an [`io::Error`].
+  #[must_use]
+  pub fn into_io_error(self) -> io::Error {
+    match self {
+      BlobStorageError::NotFound(key) => io::Error::new(
+        io::ErrorKind::NotFound,
+        format!("Blob not found: {key}"),
+      ),
+      BlobStorageError::AlreadyExists(key) => io::Error::new(
+        io::ErrorKind::AlreadyExists,
+        format!("Blob already exists: {key}"),
+      ),
+      BlobStorageError::PermissionDenied(report) => {
+        io::Error::new(io::ErrorKind::PermissionDenied, report.to_string())
+      }
+      BlobStorageError::InvalidConfig(report) => io::Error::new(
+        io::ErrorKind::InvalidInput,
+        format!("Invalid configuration: {report}"),
+      ),
+      BlobStorageError::InvalidInput(report) => {
+        io::Error::new(io::ErrorKind::InvalidInput, report.to_string())
+      }
+      BlobStorageError::NetworkError(report) => {
+        io::Error::new(io::ErrorKind::ConnectionAborted, report.to_string())
+      }
+      BlobStorageError::IoError(e) => e,
+      BlobStorageError::SerializationError(report) => {
+        io::Error::new(io::ErrorKind::InvalidData, report.to_string())
+      }
+      BlobStorageError::StreamError(report) => {
+        io::Error::new(io::ErrorKind::BrokenPipe, report.to_string())
+      }
+      BlobStorageError::Unknown(report) => io::Error::other(report.to_string()),
+    }
+  }
+}
+
 /// A type alias for [`Result`] with [`BlobStorageError`].
 pub type BlobStorageResult<T> = std::result::Result<T, BlobStorageError>;
 
