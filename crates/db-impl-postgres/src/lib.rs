@@ -129,9 +129,7 @@ impl<M: Model> PostgresDatabase<M> {
       debug!("Inserting model");
 
       let id = model.id().to_string();
-      let data = serde_json::to_value(model)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let data = Self::serialize(model)?;
 
       // Insert into main table
       let table_name = M::TABLE_NAME;
@@ -164,9 +162,7 @@ impl<M: Model> PostgresDatabase<M> {
       debug!("Updating model");
 
       let id = model.id();
-      let data = serde_json::to_value(model)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let data = Self::serialize(model)?;
 
       // Update main table
       let table_name = M::TABLE_NAME;
@@ -242,13 +238,7 @@ impl<M: Model> PostgresDatabase<M> {
       .map_err(DatabaseError::Database)?;
 
     if let Some(row) = row {
-      let data: serde_json::Value = row
-        .try_get("data")
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
-      let model: M = serde_json::from_value(data)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let model = Self::deserialize_from_row(&row)?;
 
       debug!("Model found");
       Ok(Some(model))
@@ -294,13 +284,8 @@ impl<M: Model> PostgresDatabase<M> {
       .map_err(DatabaseError::Database)?;
 
     if let Some(row) = row {
-      let data: serde_json::Value = row
-        .try_get("data")
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
-      let model: M = serde_json::from_value(data)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let model = Self::deserialize_from_row(&row)?;
+
       debug!("Model found by unique index");
       Ok(Some(model))
     } else {
@@ -344,14 +329,7 @@ impl<M: Model> PostgresDatabase<M> {
     let mut results = Vec::with_capacity(count);
 
     for row in rows {
-      let data: serde_json::Value = row
-        .try_get("data")
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
-
-      let model: M = serde_json::from_value(data)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let model = Self::deserialize_from_row(&row)?;
 
       results.push(model);
     }
@@ -383,14 +361,7 @@ impl<M: Model> PostgresDatabase<M> {
     let mut results = Vec::with_capacity(count);
 
     for row in rows {
-      let data: serde_json::Value = row
-        .try_get("data")
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
-
-      let model: M = serde_json::from_value(data)
-        .into_diagnostic()
-        .map_err(DatabaseError::Serialization)?;
+      let model = Self::deserialize_from_row(&row)?;
 
       results.push(model);
     }
@@ -432,5 +403,37 @@ impl<M: Model> PostgresDatabase<M> {
       }
     }
     false
+  }
+
+  fn deserialize_from_row(row: &PgRow) -> Result<M, DatabaseError> {
+    // get pg column as a &str
+    let data = row
+      .try_get_raw("data")
+      .into_diagnostic()
+      .context("failed to get data column from row")
+      .map_err(DatabaseError::Serialization)?
+      .as_str()
+      .map_err(|e| miette::Report::new_boxed(e.into()))
+      .context("failed to read data column")
+      .map_err(DatabaseError::Serialization)?;
+
+    // trim ascii control characters from postgres JSONB
+    let data = data.trim_start_matches(|c: char| c.is_ascii_control());
+
+    // we have to use `from_str` and not anything using `DeserializedOwned`
+    // because `StorePath<String>` still uses borrowed data in its deserializer
+    // and will fail on owned data
+    let model: M = serde_json::from_str(data)
+      .into_diagnostic()
+      .context("failed to deserialize data as model")
+      .map_err(DatabaseError::Serialization)?;
+
+    Ok(model)
+  }
+
+  fn serialize(model: &M) -> Result<serde_json::Value, DatabaseError> {
+    serde_json::to_value(model)
+      .into_diagnostic()
+      .map_err(DatabaseError::Serialization)
   }
 }
