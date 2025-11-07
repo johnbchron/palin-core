@@ -6,7 +6,7 @@
 use std::fmt::{self, Debug, Display};
 
 pub use model_derive::Model;
-pub use record_id::RecordId;
+pub use record_id::*;
 use serde::{Serialize, de::DeserializeOwned};
 
 /// Represents a model in the database.
