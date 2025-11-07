@@ -9,6 +9,7 @@ use std::sync::Arc;
 pub use db_core::DatabaseError;
 use db_core::{DatabaseLike, DatabaseResult};
 use db_impl_mock::MockDatabase;
+pub use db_impl_postgres::PgPool;
 use db_impl_postgres::PostgresDatabase;
 use model::{IndexValue, Model, RecordId};
 
@@ -40,6 +41,14 @@ impl<M: Model> Database<M> {
     Ok(Self {
       inner: Arc::new(PostgresDatabase::new(url).await?),
     })
+  }
+
+  /// Create a new database backed by a `PostgreSQL` store from a given pool.
+  #[must_use]
+  pub fn new_postgres_from_pool(pool: PgPool) -> Self {
+    Self {
+      inner: Arc::new(PostgresDatabase::new_from_pool(pool)),
+    }
   }
 
   /// Initialize the storage schema for this model.

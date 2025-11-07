@@ -28,13 +28,14 @@ struct User {
 
 #[tokio::main]
 async fn main() -> Result<()> {
-  let db = Database::<User>::new_postgres(
-    &std::env::var("POSTGRES_URL")
-      .into_diagnostic()
-      .context("could not read `POSTGRES_URL` var")?,
-  )
-  .await
-  .context("failed to connect to database")?;
+  let db_url = std::env::var("POSTGRES_URL")
+    .into_diagnostic()
+    .context("could not read `POSTGRES_URL` var")?;
+  let db_pool = db::PgPool::connect(&db_url)
+    .await
+    .into_diagnostic()
+    .context("failed to connect to postgres")?;
+  let db = Database::<User>::new_postgres_from_pool(db_pool);
 
   db.initialize_schema().await?;
 

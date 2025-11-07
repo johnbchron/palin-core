@@ -8,7 +8,8 @@ use std::marker::PhantomData;
 use db_core::{DatabaseError, DatabaseResult};
 use miette::{Context, IntoDiagnostic};
 use model::{IndexValue, Model, RecordId};
-use sqlx::{PgPool, Postgres, Row, postgres::PgRow};
+pub use sqlx::PgPool;
+use sqlx::{Postgres, Row, postgres::PgRow};
 use tracing::{debug, instrument, warn};
 
 /// Postgres-backed storage for models implementing the [`Model`] trait.
@@ -44,17 +45,25 @@ macro_rules! with_transaction {
 }
 
 impl<M: Model> PostgresDatabase<M> {
-  /// Create a new `PostgresDatabase` with the given connection pool.
+  /// Create a new [`PostgresDatabase`] with the given connection URL.
   #[instrument(fields(model = M::TABLE_NAME))]
   pub async fn new(url: &str) -> miette::Result<Self> {
-    debug!("Creating PostgresDatabase for model");
-    Ok(Self {
-      pool:     PgPool::connect(url)
+    Ok(Self::new_from_pool(
+      PgPool::connect(url)
         .await
         .into_diagnostic()
         .context("failed to connect to database")?,
+    ))
+  }
+
+  /// Create a new [`PostgresDatabase`] from the given postgres pool.
+  #[must_use]
+  pub fn new_from_pool(pool: PgPool) -> Self {
+    debug!("Creating PostgresDatabase for model");
+    Self {
+      pool,
       _phantom: PhantomData,
-    })
+    }
   }
 
   /// Initialize the database schema for this model.
