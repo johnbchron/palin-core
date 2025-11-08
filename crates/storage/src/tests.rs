@@ -4,13 +4,32 @@ use storage_core::BlobStorageLike;
 use storage_impl_memory::BlobStorageMemory;
 
 trait StorageInstantiator {
-  fn init() -> Arc<dyn BlobStorageLike>;
+  type Guard;
+  async fn init() -> (Arc<dyn BlobStorageLike>, Self::Guard);
 }
 
 struct MemoryInstatiator;
+struct FileSystemInstatiator;
 
 impl StorageInstantiator for MemoryInstatiator {
-  fn init() -> Arc<dyn BlobStorageLike> { Arc::new(BlobStorageMemory::new()) }
+  type Guard = ();
+  async fn init() -> (Arc<dyn BlobStorageLike>, Self::Guard) {
+    (Arc::new(BlobStorageMemory::new()), ())
+  }
+}
+impl StorageInstantiator for FileSystemInstatiator {
+  type Guard = tempfile::TempDir;
+  async fn init() -> (Arc<dyn BlobStorageLike>, Self::Guard) {
+    let temp_dir = tempfile::tempdir().unwrap();
+    (
+      Arc::new(
+        storage_impl_fs::BlobStorageFilesystem::new(temp_dir.path())
+          .await
+          .unwrap(),
+      ),
+      temp_dir,
+    )
+  }
 }
 
 #[generic_tests::define(attrs(tokio::test))]
@@ -22,7 +41,7 @@ mod generic_testing {
   use storage_core::BlobStorageLike;
 
   use super::{super::*, StorageInstantiator};
-  use crate::tests::MemoryInstatiator;
+  use crate::tests::{FileSystemInstatiator, MemoryInstatiator};
 
   // Helper function to create a stream from bytes
   fn bytes_stream(data: Vec<u8>) -> RequestStream {
@@ -41,13 +60,14 @@ mod generic_testing {
   }
 
   // Test fixture that creates a fresh BlobStorage instance
-  fn setup<I: StorageInstantiator>() -> Arc<dyn BlobStorageLike> {
-    <I as StorageInstantiator>::init()
+  async fn setup<I: StorageInstantiator>()
+  -> (Arc<dyn BlobStorageLike>, I::Guard) {
+    <I as StorageInstantiator>::init().await
   }
 
   #[tokio::test]
   async fn test_put_and_get_basic<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("test-blob");
     let data = b"Hello, World!".to_vec();
 
@@ -67,7 +87,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_put_overwrite_flag<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("overwrite-test");
     let data1 = b"first".to_vec();
     let data2 = b"second".to_vec();
@@ -100,7 +120,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_get_nonexistent_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("nonexistent");
 
     let result = storage.get_stream(&key).await;
@@ -109,7 +129,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_head_metadata<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("metadata-test");
     let data = b"test data for metadata".to_vec();
 
@@ -127,7 +147,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_head_nonexistent_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("nonexistent-head");
 
     let result = storage.head(&key).await;
@@ -136,7 +156,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_delete_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("delete-test");
     let data = b"to be deleted".to_vec();
 
@@ -159,7 +179,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_delete_nonexistent_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("nonexistent-delete");
 
     // Deleting nonexistent blob should either succeed or return NotFound
@@ -172,7 +192,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_presigned_url<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("presigned-test");
     let data = b"presigned url test".to_vec();
 
@@ -198,7 +218,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_presigned_url_nonexistent<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("nonexistent-presigned");
 
     let expiry = Duration::from_secs(3600);
@@ -213,7 +233,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_presigned_url_invalid_duration<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("duration-test");
 
     // Try with duration exceeding u32::MAX seconds
@@ -225,7 +245,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_large_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("large-blob");
 
     // Create a 10MB blob
@@ -250,7 +270,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_empty_blob<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("empty-blob");
     let data = Vec::new();
 
@@ -272,7 +292,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_special_characters_in_key<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let key = BlobKey::new("test/with/slashes-and_underscores");
     let data = b"special key test".to_vec();
 
@@ -289,7 +309,7 @@ mod generic_testing {
 
   #[tokio::test]
   async fn test_concurrent_operations<I: StorageInstantiator>() {
-    let storage = setup::<I>();
+    let (storage, _guard) = setup::<I>().await;
     let keys: Vec<_> = (0..10)
       .map(|i| BlobKey::new(format!("concurrent-{i}")))
       .collect();
@@ -323,4 +343,6 @@ mod generic_testing {
 
   #[instantiate_tests(<MemoryInstatiator>)]
   mod test_memory {}
+  #[instantiate_tests(<FileSystemInstatiator>)]
+  mod test_fs {}
 }

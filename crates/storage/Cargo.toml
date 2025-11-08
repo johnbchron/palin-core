@@ -7,6 +7,7 @@ publish = false
 
 [dependencies]
 storage-core = { path = "../storage-core" }
+storage-impl-fs = { path = "../storage-impl-fs" }
 storage-impl-memory = { path = "../storage-impl-memory" }
 storage-impl-s3 = { path = "../storage-impl-s3" }
 
@@ -15,6 +16,7 @@ generic-tests.workspace = true
 [dev-dependencies]
 bytes.workspace = true
 futures.workspace = true
+tempfile = "3.23"
 tokio = { workspace = true, features = [ "rt-multi-thread" ] }
 
 [lints]

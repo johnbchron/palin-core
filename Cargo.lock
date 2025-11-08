@@ -2427,8 +2427,10 @@ dependencies = [
  "futures",
  "generic-tests",
  "storage-core",
+ "storage-impl-fs",
  "storage-impl-memory",
  "storage-impl-s3",
+ "tempfile",
  "tokio",
 ]
 

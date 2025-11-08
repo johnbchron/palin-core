@@ -3,13 +3,14 @@
 #[cfg(test)]
 mod tests;
 
-use std::sync::Arc;
+use std::{fmt, path::Path, sync::Arc};
 
 use storage_core::RequestStream;
 pub use storage_core::{
   BlobKey, BlobMetadata, BlobStorageError, BlobStorageResult, Bytes,
   ResponseStream, UploadOptions,
 };
+use storage_impl_fs::BlobStorageFilesystem;
 use storage_impl_memory::BlobStorageMemory;
 use storage_impl_s3::BlobStorageS3;
 
@@ -44,6 +45,15 @@ impl BlobStorage {
     BlobStorage {
       inner: Arc::new(BlobStorageMemory::new()),
     }
+  }
+
+  /// Creates a new [`BlobStorage`] from a filesystem path.
+  pub async fn new_fs<P: AsRef<Path> + fmt::Debug>(
+    root_path: P,
+  ) -> BlobStorageResult<Self> {
+    Ok(BlobStorage {
+      inner: Arc::new(BlobStorageFilesystem::new(root_path).await?),
+    })
   }
 }
 
