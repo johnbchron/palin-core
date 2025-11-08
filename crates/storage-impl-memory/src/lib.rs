@@ -9,8 +9,8 @@ use std::{
 use bytes::Bytes;
 use futures::{TryStreamExt, stream};
 use storage_core::{
-  BlobEntry, BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike,
-  BlobStorageResult, RequestStream, ResponseStream, UploadOptions,
+  BlobKey, BlobMetadata, BlobStorageError, BlobStorageLike, BlobStorageResult,
+  RequestStream, ResponseStream, UploadOptions,
 };
 use tokio::sync::RwLock;
 use tracing::{debug, error, info, instrument, warn};
@@ -81,71 +81,6 @@ impl BlobStorageMemory {
     Self {
       storage: Arc::new(RwLock::new(HashMap::new())),
     }
-  }
-
-  /// Returns the number of blobs currently stored.
-  #[instrument(skip(self))]
-  pub async fn len(&self) -> usize {
-    let len = self.storage.read().await.len();
-    debug!(blob_count = len, "Retrieved blob count");
-    len
-  }
-
-  /// Returns true if no blobs are stored.
-  #[instrument(skip(self))]
-  pub async fn is_empty(&self) -> bool {
-    let empty = self.storage.read().await.is_empty();
-    debug!(is_empty = empty, "Checked if storage is empty");
-    empty
-  }
-
-  /// Clears all stored blobs.
-  #[instrument(skip(self))]
-  pub async fn clear(&self) {
-    let count = self.storage.read().await.len();
-    self.storage.write().await.clear();
-    info!(cleared_count = count, "Cleared all blobs from storage");
-  }
-
-  /// Lists all blob keys with optional prefix filter.
-  #[instrument(skip(self), fields(prefix = ?prefix))]
-  pub async fn list(
-    &self,
-    prefix: Option<&str>,
-  ) -> BlobStorageResult<Vec<BlobEntry>> {
-    debug!("Listing blobs");
-
-    let storage = self.storage.read().await;
-    let total_blobs = storage.len();
-
-    let mut entries: Vec<BlobEntry> = storage
-      .iter()
-      .filter(|(key, _)| {
-        if let Some(prefix) = prefix {
-          key.starts_with(prefix)
-        } else {
-          true
-        }
-      })
-      .map(|(key, blob)| BlobEntry {
-        key:           BlobKey::new(key.clone()),
-        size:          blob.data.len() as u64,
-        last_modified: Some(blob.last_modified.clone()),
-        etag:          Some(blob.etag.clone()),
-      })
-      .collect();
-
-    // Sort by key for consistent ordering
-    entries.sort_by(|a, b| a.key.as_str().cmp(b.key.as_str()));
-
-    info!(
-      total_blobs = total_blobs,
-      filtered_count = entries.len(),
-      prefix = ?prefix,
-      "Listed blobs successfully"
-    );
-
-    Ok(entries)
   }
 }
 
@@ -413,33 +348,6 @@ mod tests {
     assert!(storage.head(&key).await.unwrap().is_some());
     storage.delete(&key).await.unwrap();
     assert!(storage.head(&key).await.unwrap().is_none());
-  }
-
-  #[tokio::test]
-  async fn test_list() {
-    let storage = BlobStorageMemory::new();
-
-    // Add some blobs
-    for i in 0..5 {
-      let key = BlobKey::new(format!("prefix/file{i}"));
-      let data = Bytes::from(format!("data{i}"));
-      let stream = Box::pin(stream::once(async move { Ok(data) }));
-      storage
-        .put_stream(&key, stream, UploadOptions::default())
-        .await
-        .unwrap();
-    }
-
-    // List all
-    let all = storage.list(None).await.unwrap();
-    assert_eq!(all.len(), 5);
-
-    // List with prefix
-    let filtered = storage.list(Some("prefix/")).await.unwrap();
-    assert_eq!(filtered.len(), 5);
-
-    let empty = storage.list(Some("other/")).await.unwrap();
-    assert_eq!(empty.len(), 0);
   }
 
   #[tokio::test]

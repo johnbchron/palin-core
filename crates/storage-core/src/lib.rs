@@ -34,19 +34,6 @@ pub struct UploadOptions {
   pub overwrite: bool,
 }
 
-/// A single entry in a list operation
-#[derive(Debug, Clone)]
-pub struct BlobEntry {
-  /// The blob's key
-  pub key:           BlobKey,
-  /// Size in bytes
-  pub size:          u64,
-  /// Last modified timestamp
-  pub last_modified: Option<String>,
-  /// `ETag` if available
-  pub etag:          Option<String>,
-}
-
 /// Error types for blob storage operations
 #[derive(Debug, thiserror::Error, Diagnostic)]
 pub enum BlobStorageError {
