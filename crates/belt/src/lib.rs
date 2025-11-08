@@ -6,6 +6,10 @@ mod tests;
 use std::{
   fmt, io,
   pin::Pin,
+  sync::{
+    Arc,
+    atomic::{AtomicU64, Ordering},
+  },
   task::{Context, Poll},
 };
 
@@ -17,6 +21,7 @@ use tokio_util::io::{ReaderStream, StreamReader};
 /// An opaque container for streaming bytes data.
 pub struct Belt {
   inner: Inner,
+  count: Arc<AtomicU64>,
 }
 
 impl fmt::Debug for Belt {
@@ -39,14 +44,16 @@ impl Belt {
   {
     Self {
       inner: Inner::Dynamic(Box::pin(stream)),
+      count: Arc::new(AtomicU64::new(0)),
     }
   }
 
   /// Create from a [`Bytes`].
   #[must_use]
-  pub const fn new_from_bytes(input: Bytes) -> Self {
+  pub fn new_from_bytes(input: Bytes) -> Self {
     Self {
       inner: Inner::Static(Some(input)),
+      count: Arc::new(AtomicU64::new(0)),
     }
   }
 
@@ -58,7 +65,7 @@ impl Belt {
 
   /// Create from a slice of bytes.
   #[must_use]
-  pub const fn new_from_static_slice(input: &'static [u8]) -> Self {
+  pub fn new_from_static_slice(input: &'static [u8]) -> Self {
     Self::new_from_bytes(Bytes::from_static(input))
   }
 
@@ -74,11 +81,16 @@ impl Belt {
 
   /// Create an empty stream.
   #[must_use]
-  pub const fn empty() -> Self {
+  pub fn empty() -> Self {
     Self {
       inner: Inner::Static(None),
+      count: Arc::new(AtomicU64::new(0)),
     }
   }
+
+  /// Get a counter that tracks the byte count traversing this [`Belt`] for
+  /// its lifetime.
+  pub fn counter(&self) -> Counter { Counter::new(self.count.clone()) }
 
   /// Collect a [`Belt`] into a single [`Bytes`].
   pub async fn collect_bytes(self) -> Result<Bytes, io::Error> {
@@ -104,10 +116,18 @@ impl Stream for Belt {
     mut self: Pin<&mut Self>,
     cx: &mut Context<'_>,
   ) -> Poll<Option<Self::Item>> {
-    match &mut self.inner {
+    // poll stream
+    let result = match &mut self.inner {
       Inner::Static(bytes) => Poll::Ready(bytes.take().map(Ok)),
       Inner::Dynamic(stream) => stream.as_mut().poll_next(cx),
+    };
+
+    // increment byte counter
+    if let Poll::Ready(Some(Ok(ref bytes))) = result {
+      self.count.fetch_add(bytes.len() as u64, Ordering::Relaxed);
     }
+
+    result
   }
 }
 
@@ -125,4 +145,15 @@ impl From<&'static [u8]> for Belt {
 
 impl From<&'static str> for Belt {
   fn from(s: &'static str) -> Self { Belt::new_from_static_slice(s.as_bytes()) }
+}
+
+/// A counter returned by a [`Belt`]
+pub struct Counter(Arc<AtomicU64>);
+
+impl Counter {
+  pub(crate) const fn new(count: Arc<AtomicU64>) -> Self { Self(count) }
+
+  /// Gets the byte count contained in this counter.
+  #[must_use]
+  pub fn get(&self) -> u64 { self.0.load(Ordering::Relaxed) }
 }

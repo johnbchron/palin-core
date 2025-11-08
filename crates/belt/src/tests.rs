@@ -170,3 +170,102 @@ async fn test_stream_consumed_once() {
   let second = stream.next().await;
   assert!(second.is_none());
 }
+
+#[tokio::test]
+async fn test_counter_empty_belt() {
+  let belt = Belt::empty();
+  let counter = belt.counter();
+  assert_eq!(counter.get(), 0);
+  let _ = belt.collect_bytes().await.unwrap();
+  assert_eq!(counter.get(), 0);
+}
+
+#[tokio::test]
+async fn test_counter_static_bytes() {
+  let data = Bytes::from("hello world");
+  let belt = Belt::from(data.clone());
+  let counter = belt.counter();
+  assert_eq!(counter.get(), 0);
+  let _ = belt.collect_bytes().await.unwrap();
+  assert_eq!(counter.get(), data.len() as u64);
+}
+
+#[tokio::test]
+async fn test_counter_dynamic_stream() {
+  let chunks = vec![
+    Ok(Bytes::from("hello ")),
+    Ok(Bytes::from("world")),
+    Ok(Bytes::from("!")),
+  ];
+  let stream = stream::iter(chunks);
+  let belt = Belt::new(stream);
+  let counter = belt.counter();
+  assert_eq!(counter.get(), 0);
+  let _ = belt.collect_bytes().await.unwrap();
+  assert_eq!(counter.get(), 12); // "hello world!" = 12 bytes
+}
+
+#[tokio::test]
+async fn test_counter_incremental() {
+  let chunks = vec![
+    Ok(Bytes::from("abc")),
+    Ok(Bytes::from("def")),
+    Ok(Bytes::from("ghi")),
+  ];
+  let stream = stream::iter(chunks);
+  let belt = Belt::new(stream);
+  let counter = belt.counter();
+
+  let mut stream = Box::pin(belt);
+  assert_eq!(counter.get(), 0);
+
+  stream.next().await;
+  assert_eq!(counter.get(), 3);
+
+  stream.next().await;
+  assert_eq!(counter.get(), 6);
+
+  stream.next().await;
+  assert_eq!(counter.get(), 9);
+}
+
+#[tokio::test]
+async fn test_counter_with_error() {
+  let chunks = vec![
+    Ok(Bytes::from("hello")),
+    Err(io::Error::other("test error")),
+  ];
+  let stream = stream::iter(chunks);
+  let belt = Belt::new(stream);
+  let counter = belt.counter();
+
+  let _ = belt.collect_bytes().await;
+  // Counter should still track bytes before the error
+  assert_eq!(counter.get(), 5);
+}
+
+#[tokio::test]
+async fn test_counter_with_async_read() {
+  let belt = Belt::from("test data");
+  let counter = belt.counter();
+  let mut reader = belt.into_async_read();
+  let mut buffer = Vec::new();
+  reader.read_to_end(&mut buffer).await.unwrap();
+  assert_eq!(counter.get(), 9); // "test data" = 9 bytes
+}
+
+#[tokio::test]
+async fn test_counter_multiple_references() {
+  let belt = Belt::from("shared");
+  let counter1 = belt.counter();
+  let counter2 = belt.counter();
+
+  assert_eq!(counter1.get(), 0);
+  assert_eq!(counter2.get(), 0);
+
+  let _ = belt.collect_bytes().await.unwrap();
+
+  // Both counters should see the same value
+  assert_eq!(counter1.get(), 6);
+  assert_eq!(counter2.get(), 6);
+}
