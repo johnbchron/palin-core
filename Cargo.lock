@@ -2475,11 +2475,13 @@ dependencies = [
 name = "storage-test"
 version = "0.1.0"
 dependencies = [
+ "belt",
  "bytes",
  "futures",
  "miette",
  "storage",
  "tokio",
+ "tokio-util",
 ]
 
 [[package]]

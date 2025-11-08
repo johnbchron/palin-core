@@ -2,11 +2,12 @@
 
 use std::path::Path;
 
-use bytes::BytesMut;
-use futures::StreamExt;
+use belt::Belt;
+use futures::TryStreamExt;
 use miette::{Context, IntoDiagnostic, Result};
-use storage::{BlobKey, BlobStorage};
-use tokio::io::BufReader;
+use storage::{BlobKey, BlobStorage, BlobStorageError, UploadOptions};
+use tokio::fs::File;
+use tokio_util::io::ReaderStream;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -24,6 +25,7 @@ async fn main() -> Result<()> {
     .context("could not read `R2_ACCOUNT_ID`")?;
   let r2_endpoint = format!("https://{r2_account_id}.r2.cloudflarestorage.com");
 
+  // init bucket
   let bucket = BlobStorage::new_s3_bucket(
     &r2_bucket,
     "auto",
@@ -36,6 +38,7 @@ async fn main() -> Result<()> {
   let key =
     BlobKey::new("3flk9hbwfbixi5vybxlm5vsx8cqs0bi5-zenmap-7.98".to_owned());
 
+  // get object head
   println!("fetch head of object at `{key}`");
   let head = bucket
     .head(&key)
@@ -43,43 +46,55 @@ async fn main() -> Result<()> {
     .with_context(|| format!("failed to get head of object at `{key}`"))?;
   println!("object head: {head:#?}");
 
+  // fetch object
   println!("fetching object at key `{key}`");
-  let mut chunks = Vec::new();
-  let mut stream = bucket
+  let stream = bucket
     .get_stream(&key)
     .await
     .with_context(|| format!("failed to get object at key `{key}`"))?;
+  let data =
+    Belt::new(Box::pin(stream.map_err(BlobStorageError::into_io_error)));
+  let counter = data.counter();
 
-  while let Some(result) = stream.next().await {
-    match result {
-      Ok(chunk) => {
-        chunks.push(chunk);
-      }
-      Err(err) => {
-        println!("got error from stream: {err}");
-      }
-    }
-  }
-  let data = chunks.into_iter().fold(BytesMut::new(), |mut acc, x| {
-    acc.extend_from_slice(&x[..]);
-    acc
-  });
-  println!("got {byte_count} bytes", byte_count = data.len(),);
-
+  // copy to fs
   let path = Path::new("/tmp/test-object");
   println!(
     "copying object at key `{key}` to file at path \"{path}\"",
     path = path.display()
   );
-  let mut file = tokio::fs::File::create(path)
+  let mut file = File::create(path)
     .await
     .into_diagnostic()
     .context("failed to open temp file")?;
-  let mut reader = BufReader::new(&data[..]);
+  let mut reader = data.into_async_read();
   tokio::io::copy(&mut reader, &mut file)
     .await
     .into_diagnostic()
     .context("failed to copy object to file")?;
+  println!(
+    "streamed {count} bytes from object at key `{key}`",
+    count = counter.get()
+  );
+
+  // upload object
+  println!(
+    "uploading file at \"{path}\" to key `{key}`",
+    path = path.display()
+  );
+  let file = File::open(path)
+    .await
+    .into_diagnostic()
+    .context("failed to open temp file")?;
+  let stream = Belt::new(ReaderStream::new(file));
+  let counter = stream.counter();
+  bucket
+    .put_stream(&key, Box::pin(stream), UploadOptions { overwrite: true })
+    .await
+    .with_context(|| format!("failed to put object at key `{key}`"))?;
+  println!(
+    "streamed {count} bytes to object at key `{key}`",
+    count = counter.get()
+  );
 
   Ok(())
 }

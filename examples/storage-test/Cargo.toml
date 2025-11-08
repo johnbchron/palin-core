@@ -8,12 +8,15 @@ publish = false
 [dependencies]
 storage = { path = "../../crates/storage" }
 
+belt = { path = "../../crates/belt" }
+
 bytes.workspace = true
 futures.workspace = true
 miette = { workspace = true, features = [ "fancy" ] }
 
 # this is not from the workspace so as not to pollute the shared feature set
 tokio = { version = "1", features = [ "macros", "rt-multi-thread" ] }
+tokio-util = { workspace = true, features = [ "io" ] }
 
 [lints]
 workspace = true
