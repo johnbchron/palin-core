@@ -6,6 +6,7 @@ use async_trait::async_trait;
 pub use bytes::Bytes;
 pub use futures::stream::Stream;
 use miette::Diagnostic;
+use serde::{Deserialize, Serialize};
 pub use storage_types::BlobKey;
 
 /// Type alias for streaming request data
@@ -16,7 +17,7 @@ pub type ResponseStream =
   Pin<Box<dyn Stream<Item = Result<Bytes, BlobStorageError>> + Send>>;
 
 /// Metadata associated with a blob object
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BlobMetadata {
   /// Size of the blob in bytes
   pub size:          u64,
